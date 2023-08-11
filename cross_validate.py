@@ -18,7 +18,7 @@ def cross_validate(
     num_split: int = 10,
     n_job: int = 2,
     verbose: bool = False,
-) -> dict[str, float]:
+):
     """Perform cross-validation with transformer and sampler."""
     folds = StratifiedKFold(n_splits=num_split)
 
@@ -30,14 +30,20 @@ def cross_validate(
         )
         for train_idx, valid_idx in folds.split(X, y)
     )
-    return dict()
+    # results = [
+    #     _fit_and_score(
+    #         clone(estimator), X, y, train_idx, valid_idx, sampler, transformer, scorer
+    #     )
+    #     for train_idx, valid_idx in folds.split(X, y)
+    # ]
+    return results
 
 
 def _fit_and_score(
-    estimator, X, y, train_idx, valid_idx, sampler, transformer, scorer
+    estimator, X: pd.DataFrame, y, train_idx, valid_idx, sampler, transformer, scorer
 ) -> dict[str, float]:
-    X_train, y_train = X[train_idx], y[train_idx]
-    X_valid, y_valid = X[valid_idx], y[valid_idx]
+    X_train, y_train = X.iloc[train_idx, :], y[train_idx]
+    X_valid, y_valid = X.iloc[valid_idx, :], y[valid_idx]
     # balance
     Xs_train, ys_train = sampler.fit_resample(X_train, y_train)
     # preprocess
@@ -64,7 +70,10 @@ def keras_AUC(y_true, y_pred) -> np.float64:
 
 
 class GridSearcher:
+    """GridSearch with CV."""
+
     def __init__(self) -> None:
+        """Init."""
         pass
 
 
