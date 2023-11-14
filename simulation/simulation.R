@@ -152,7 +152,7 @@ lr_sub <- glm(
 p_sub <- predict(lr_sub, test[, 2:3], type = "response") %>% unname()
 s2 <- auc(roc(test$y, p_sub, quiet = TRUE))
 p_sub <- predict(lr_sub, test[test$cluster != 1, 2:3], type = "response") %>% unname()
-s3 <- auc(roc(test$y, c(rep(0, 1000), p_sub), quiet = TRUE))
+
 
 p1 + labs(title = glue::glue("baseline: ", round(s1, 3))) +
   p2 + labs(
@@ -173,6 +173,13 @@ p1 + labs(title = glue::glue("baseline: ", round(s1, 3))) +
   plot_layout(guides = "collect") &
   theme(legend.position = "bottom") &
   labs(color = "")
+
+# prob contour plot
+prob_contour_plot(lr, c(-1, 2))
+prob_contour_plot(lr_sub, c(-1, 2))
+
+# pre-labeling
+s3 <- auc(roc(test$y, c(rep(0, 1000), p_sub), quiet = TRUE))
 
 
 ## simulation 2----------------------
