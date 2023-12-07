@@ -1,2 +1,3 @@
 # imbalanced-and-missing
- addresss complicated data quality issues
+ 
+ Applying simple MoE and VAE on MNIST and other toy datasets.

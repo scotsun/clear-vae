@@ -16,26 +16,37 @@ def vae_loss(x_reconstr, x, mu, log_var):
 
 
 class VAE(nn.Module):
-    def __init__(self, z_dim) -> None:
+    def __init__(self, in_dim, z_dim) -> None:
         super().__init__()
         # encoder
         self.encoder = nn.Sequential(
             nn.Conv2d(1, 32, 3, 2, 1),
+            nn.BatchNorm2d(32),
             nn.ReLU(),
             nn.Conv2d(32, 64, 3, 2, 1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            nn.Conv2d(64, 128, 3, 2, 1),
+            nn.BatchNorm2d(128),
             nn.ReLU(),
             nn.Flatten(),
-            nn.Linear(3136, 16),
-            nn.ReLU(),
         )
-        self.fc_mu = nn.Linear(16, z_dim)
-        self.fc_log_var = nn.Linear(16, z_dim)
+        self.fc_mu = nn.Linear(2048, z_dim)
+        self.fc_log_var = nn.Linear(2048, z_dim)
         # decoder
-        self.dec_fc = nn.Linear(z_dim, 3136)
         self.decoder = nn.Sequential(
+            nn.Linear(2, 2048),
+            nn.BatchNorm1d(2048),
+            nn.ReLU(),
+            nn.Unflatten(1, (128, 4, 4)),
+            nn.ConvTranspose2d(128, 64, 3, 2, 1, 0),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
             nn.ConvTranspose2d(64, 32, 3, 2, 1, 1),
+            nn.BatchNorm2d(32),
             nn.ReLU(),
             nn.ConvTranspose2d(32, 1, 3, 2, 1, 1),
+            nn.BatchNorm2d(1),
             nn.Sigmoid(),
         )
 
@@ -44,9 +55,7 @@ class VAE(nn.Module):
         return self.fc_mu(h), self.fc_log_var(h)
 
     def decode(self, z):
-        x = self.dec_fc(z)
-        x = x.reshape(-1, 64, 7, 7)
-        x = self.decoder(x)
+        x = self.decoder(z)
         return x
 
     def sample(self, mu, log_var):

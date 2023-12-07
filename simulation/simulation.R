@@ -1,7 +1,6 @@
 library(tidyverse)
 library(patchwork)
 library(pROC)
-setwd("../Desktop/Duke Univeristy/Research/Autism grant/simulation/")
 
 # N <- c(100, 1000, 300, 200)
 # P <- c(1, 0.1, 0.01, 1)
@@ -106,7 +105,7 @@ prob_contour <- function(lr, lims) {
   return(grid_coord)
 }
 
-prob_contour_plot <- function(lr, lims, decision_rule=0.5) {
+prob_contour_plot <- function(train, lr, lims, decision_rule=0.5) {
   decision_line <- get_logistic_decision_boundary(lr, decision_rule = decision_rule)
   ggplot() +
     geom_point(data = train, aes(x=x1, y=x2, color=y), alpha=0.5) +
@@ -175,8 +174,8 @@ p1 + labs(title = glue::glue("baseline: ", round(s1, 3))) +
   labs(color = "")
 
 # prob contour plot
-prob_contour_plot(lr, c(-1, 2))
-prob_contour_plot(lr_sub, c(-1, 2))
+prob_contour_plot(train, lr, c(-1, 2))
+prob_contour_plot(train[train$cluster != k,], lr_sub, c(-1, 2))
 
 # pre-labeling
 s3 <- auc(roc(test$y, c(rep(0, 1000), p_sub), quiet = TRUE))
