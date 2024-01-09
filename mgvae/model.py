@@ -148,7 +148,7 @@ class MGVAE(nn.Module):
         # TODO:
         pass
 
-    def train(self, train_loader, kl_loss_fn, lr, epochs, verbose_period):
+    def train(self, train_loader, kl_loss_fn: str, lr, epochs, verbose_period):
         optimizer = torch.optim.Adam(self.parameters(), lr=lr)
         for epoch in range(epochs):
             total_recon_loss, total_kl_loss = 0.0, 0.0
