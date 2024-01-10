@@ -1,42 +1,49 @@
 """Implementing MGVAE."""
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributions as dis
 from tqdm import tqdm
 
-from torch.utils.data import DataLoader
+from torch.utils.data import Dataset, Subset, DataLoader
 
 
-def log_mg_prior(z, mu_major, logvar_major):
+def log_mg_prior(z, mu_major, logvar_major, device):
     # z.shape = (T, m)
     T, _ = z.shape
     N, m = mu_major.shape
 
     mu_major = mu_major[None, :, :].repeat(T, 1, 1)
     z = z[:, None, :].repeat(1, N, 1)
-    r_dist = dis.MultivariateNormal(mu_major, logvar_major.exp() * torch.eye(m))
-    r_logpdf = r_dist.log_prob(z)
+    r_dist = dis.MultivariateNormal(
+        mu_major, logvar_major.exp() * torch.eye(m).to(device)
+    )
+    r_logpdf = r_dist.log_prob(z).to(device)
     log_prior_pdf = r_logpdf.exp().mean(dim=1).log()
     return log_prior_pdf
 
 
-def kl_estimated_loss(mu_minor, logvar_minor, mu_major, logvar_major, T=50):
+def kl_estimated_loss(mu_minor, logvar_minor, mu_major, logvar_major, device, T=30):
     B, _ = mu_minor.shape
     kl_loss = 0.0
+
     for i in range(B):
         q = dis.MultivariateNormal(mu_minor[i], logvar_minor[i].exp().diag())
-        z = q.sample(sample_shape=(T,))
+        z = q.sample(sample_shape=(T,)).to(device)
         # ratio = prior_pdf / encoder_pdf
         # estimate kl per (mu(x-), logvar(x-)) via sample mean of (ratio - 1) - log_ratio
-        log_ratio = log_mg_prior(z, mu_major, logvar_major.exp()) - q.log_prob(z)
+        log_ratio = log_mg_prior(z, mu_major, logvar_major.exp(), device) - q.log_prob(
+            z
+        ).to(device)
         kl_est = ((log_ratio.exp() - 1) - log_ratio).mean()
         kl_loss += kl_est / B
+
     return kl_loss
 
 
-def kl_lb_loss(mu_minor, logvar_minor, mu_major, logvar_major):
+def kl_lb_loss(mu_minor, logvar_minor, mu_major, logvar_major, device):
     B, m = mu_minor.shape
     N, _ = mu_major.shape
 
@@ -58,7 +65,14 @@ def kl_lb_loss(mu_minor, logvar_minor, mu_major, logvar_major):
 
 
 def mgvae_loss(
-    x_reconstr, x, mu_minor, logvar_minor, mu_major, logvar_major, kl_loss_fn: str
+    x_reconstr,
+    x,
+    mu_minor,
+    logvar_minor,
+    mu_major,
+    logvar_major,
+    kl_loss_fn: str,
+    device,
 ):
     n_dims = len(x.shape)
     reconstruction_loss = (
@@ -69,11 +83,11 @@ def mgvae_loss(
     match kl_loss_fn:
         case "estimated":
             kl_regularization = kl_estimated_loss(
-                mu_minor, logvar_minor, mu_major, logvar_major
+                mu_minor, logvar_minor, mu_major, logvar_major, device
             )
         case "lower_bound":
             kl_regularization = kl_lb_loss(
-                mu_minor, logvar_minor, mu_major, logvar_major
+                mu_minor, logvar_minor, mu_major, logvar_major, device
             )
         case _:
             raise ValueError("incorrect 'kl_loss_fn' value.")
@@ -82,15 +96,23 @@ def mgvae_loss(
 
 class MGVAE(nn.Module):
     def __init__(
-        self, input_dim, hidden_dim, latent_dim, majority_dataloader: DataLoader
+        self,
+        input_dim,
+        hidden_dim,
+        latent_dim,
+        majority_data: Dataset,
+        N_maj: int,
+        device,
     ) -> None:
         super().__init__()
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.latent_dim = latent_dim
-        self.majority_dataloader = majority_dataloader
+        self.majority_data = majority_data
+        self.N_maj = N_maj
+        self.device = device
 
-        self.logvar_major = nn.Parameter(torch.zeros(1))
+        self.logvar_major = nn.Parameter(torch.ones(1))
 
         self.encoder = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
@@ -134,12 +156,22 @@ class MGVAE(nn.Module):
         return x_hat, mu, logvar
 
     def compute_mg_prior_mu(self):
-        N = len(self.majority_dataloader.dataset)
-        mu_major = torch.zeros(N, self.latent_dim)
+        """Calculate a majority guided prior using a sub-sample of the majority set."""
+        majority_data = self.majority_data
+        majority_dl = DataLoader(
+            Subset(
+                majority_data,
+                np.random.choice(len(majority_data), self.N_maj, replace=False),
+            ),
+            batch_size=128,
+            shuffle=True,
+        )
+        mu_major = torch.zeros(self.N_maj, self.latent_dim).to(self.device)
         idx_cursor = 0
         with torch.no_grad():
-            for X_batch, _ in self.majority_dataloader:
-                mu_batch = self.encode(X_batch)
+            for X_batch, _ in majority_dl:
+                X_batch = X_batch.view(-1, self.input_dim).to(self.device)
+                mu_batch, _ = self.encode(X_batch)
                 mu_major[idx_cursor : (idx_cursor + len(X_batch)), :] = mu_batch
                 idx_cursor += len(X_batch)
         return mu_major
@@ -155,13 +187,15 @@ class MGVAE(nn.Module):
             total_batch = 0.0
             verbose = (epoch % verbose_period) == 0
             with tqdm(
-                train_loader, unit="batch", miniterval=0, disable=not verbose
+                train_loader, unit="batch", mininterval=0, disable=not verbose
             ) as bar:
                 bar.set_description(f"Epoch {epoch}")
                 for X_batch, _ in bar:
+                    X_batch = X_batch.view(-1, self.input_dim).to(self.device)
                     optimizer.zero_grad()
-                    mu_major = self.compute_mg_prior_mu()
                     Xh_batch, mu_batch, logvar_batch = self(X_batch)
+                    # get a sub-sample of majorities to compute prior
+                    mu_major = self.compute_mg_prior_mu()
                     recon_loss, kl_loss = mgvae_loss(
                         Xh_batch,
                         X_batch,
@@ -170,6 +204,7 @@ class MGVAE(nn.Module):
                         mu_major,
                         self.logvar_major,
                         kl_loss_fn,
+                        self.device,
                     )
                     (recon_loss + kl_loss).backward()
                     optimizer.step()
