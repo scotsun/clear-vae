@@ -194,11 +194,12 @@ class MGVAE(nn.Module):
         verbose_period,
     ):
         print("finetuning starts:")
-        # fisher information is calculated based on the pre-trained model
+        # Fisher information calculated based on the pre-trained model
         ewc = EWC(self, self.majority_data, kl_loss_fn, self.device)
         optimizer = torch.optim.Adam(self.parameters(), lr=lr)
         for epoch in range(epochs):
             total_recon_loss, total_kl_loss, total_ewc_loss = 0.0, 0.0, 0.0
+            total_loss = 0.0
             total_batch = 0.0
             verbose = (epoch % verbose_period) == 0
             with tqdm(
@@ -230,20 +231,14 @@ class MGVAE(nn.Module):
                     total_recon_loss += recon_loss.item()
                     total_kl_loss += kl_loss.item()
                     total_ewc_loss += ewc_loss.item()
+                    total_loss += loss.item()
                     total_batch += 1
 
                     bar.set_postfix(
                         recon_loss=float(total_recon_loss / total_batch),
                         kl_loss=float(total_kl_loss / total_batch),
                         ewc_loss=float(total_ewc_loss / total_batch),
-                        total=float(
-                            (
-                                total_recon_loss
-                                + total_kl_loss
-                                + ewc_lambda * total_ewc_loss
-                            )
-                            / total_batch
-                        ),
+                        total=float(total_loss / total_batch),
                     )
 
     def pretrain(
@@ -258,6 +253,7 @@ class MGVAE(nn.Module):
         optimizer = torch.optim.Adam(self.parameters(), lr=lr)
         for epoch in range(epochs):
             total_recon_loss, total_kl_loss = 0.0, 0.0
+            total_loss = 0.0
             total_batch = 0.0
             verbose = (epoch % verbose_period) == 0
             with tqdm(
@@ -286,12 +282,13 @@ class MGVAE(nn.Module):
                     # update progress
                     total_recon_loss += recon_loss.item()
                     total_kl_loss += kl_loss.item()
+                    total_loss += loss.item()
                     total_batch += 1
 
                     bar.set_postfix(
                         recon_loss=float(total_recon_loss / total_batch),
                         kl_loss=float(total_kl_loss / total_batch),
-                        total=float((total_recon_loss + total_kl_loss) / total_batch),
+                        total=float(total_loss / total_batch),
                     )
 
 
