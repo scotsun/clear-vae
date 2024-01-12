@@ -1,4 +1,4 @@
-"""Implementing MGVAE."""
+"""Implementing MGVAE & EWC."""
 
 import numpy as np
 import torch
@@ -6,8 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributions as dis
 from tqdm import tqdm
-
-from torch.utils.data import Dataset, Subset, DataLoader
+from torch.utils.data import Dataset, TensorDataset, Subset, DataLoader
 
 
 def log_mg_prior(z, mu_major, logvar_major, device):
@@ -25,7 +24,11 @@ def log_mg_prior(z, mu_major, logvar_major, device):
     return log_prior_pdf
 
 
-def kl_estimated_loss(mu_minor, logvar_minor, mu_major, logvar_major, device, T=30):
+def kl_estimated_loss(
+    mu_minor, logvar_minor, mu_major, logvar_major, device, reduce: bool, T=30
+):
+    """Calculate KL loss using an MC estimator."""
+    # TODO: allow to be reduced or not
     B, _ = mu_minor.shape
     kl_loss = 0.0
 
@@ -43,7 +46,8 @@ def kl_estimated_loss(mu_minor, logvar_minor, mu_major, logvar_major, device, T=
     return kl_loss
 
 
-def kl_lb_loss(mu_minor, logvar_minor, mu_major, logvar_major, device):
+def kl_lb_loss(mu_minor, logvar_minor, mu_major, logvar_major, reduce: bool):
+    """Calculate KL loss's lower bound using another Jensen's Inequality."""
     B, m = mu_minor.shape
     N, _ = mu_major.shape
 
@@ -61,7 +65,8 @@ def kl_lb_loss(mu_minor, logvar_minor, mu_major, logvar_major, device):
     )
 
     kl = kl_invariant + kl_variant
-    return kl.mean()
+
+    return kl.mean() if reduce else kl
 
 
 def mgvae_loss(
@@ -72,22 +77,25 @@ def mgvae_loss(
     mu_major,
     logvar_major,
     kl_loss_fn: str,
-    device,
+    device: str,
+    reduce: bool = True,
 ):
     n_dims = len(x.shape)
-    reconstruction_loss = (
-        F.binary_cross_entropy(x_reconstr, x, reduction="none")
-        .sum(dim=list(range(n_dims))[1:])
-        .mean()
+    _reconstruction_loss = F.binary_cross_entropy(x_reconstr, x, reduction="none").sum(
+        dim=list(range(n_dims))[1:]
     )
+    reconstruction_loss = (
+        _reconstruction_loss.mean() if reduce else _reconstruction_loss
+    )
+
     match kl_loss_fn:
         case "estimated":
             kl_regularization = kl_estimated_loss(
-                mu_minor, logvar_minor, mu_major, logvar_major, device
+                mu_minor, logvar_minor, mu_major, logvar_major, device, reduce
             )
         case "lower_bound":
             kl_regularization = kl_lb_loss(
-                mu_minor, logvar_minor, mu_major, logvar_major, device
+                mu_minor, logvar_minor, mu_major, logvar_major, reduce
             )
         case _:
             raise ValueError("incorrect 'kl_loss_fn' value.")
@@ -180,7 +188,62 @@ class MGVAE(nn.Module):
         # TODO:
         pass
 
-    def train(self, train_loader, kl_loss_fn: str, lr, epochs, verbose_period):
+    def finetune(
+        self, train_loader: DataLoader, kl_loss_fn: str, lr, epochs, verbose_period
+    ):
+        print("finetuning starts:")
+        ewc = EWC(self, self.majority_data, kl_loss_fn, self.device)
+        optimizer = torch.optim.Adam(self.parameters(), lr=lr)
+        for epoch in range(epochs):
+            total_recon_loss, total_kl_loss, total_ewc_loss = 0.0, 0.0, 0.0
+            total_batch = 0.0
+            verbose = (epoch % verbose_period) == 0
+            with tqdm(
+                train_loader, unit="batch", mininterval=0, disable=not verbose
+            ) as bar:
+                bar.set_description(f"Epoch {epoch}")
+                for X_batch, _ in bar:
+                    X_batch = X_batch.view(-1, self.input_dim).to(self.device)
+                    optimizer.zero_grad()
+                    Xh_batch, mu_batch, logvar_batch = self(X_batch)
+                    # get a sub-sample of majorities to compute prior
+                    mu_major = self.compute_mg_prior_mu()
+                    recon_loss, kl_loss = mgvae_loss(
+                        Xh_batch,
+                        X_batch,
+                        mu_batch,
+                        logvar_batch,
+                        mu_major,
+                        self.logvar_major,
+                        kl_loss_fn,
+                        self.device,
+                    )
+                    ewc_loss = ewc.penalty(self)
+                    loss = recon_loss + kl_loss + ewc_loss
+
+                    loss.backward()
+                    optimizer.step()
+                    # update progress
+                    total_recon_loss += recon_loss.item()
+                    total_kl_loss += kl_loss.item()
+                    total_ewc_loss += ewc_loss.item()
+                    total_batch += 1
+
+                    bar.set_postfix(
+                        recon_loss=float(total_recon_loss / total_batch),
+                        kl_loss=float(total_kl_loss / total_batch),
+                        ewc_loss=float(total_ewc_loss / total_batch),
+                    )
+
+    def pretrain(
+        self,
+        train_loader: DataLoader,
+        kl_loss_fn: str,
+        lr,
+        epochs,
+        verbose_period,
+    ):
+        print("pre-training starts:")
         optimizer = torch.optim.Adam(self.parameters(), lr=lr)
         for epoch in range(epochs):
             total_recon_loss, total_kl_loss = 0.0, 0.0
@@ -206,20 +269,85 @@ class MGVAE(nn.Module):
                         kl_loss_fn,
                         self.device,
                     )
-                    (recon_loss + kl_loss).backward()
+                    loss = recon_loss + kl_loss
+                    loss.backward()
                     optimizer.step()
                     # update progress
                     total_recon_loss += recon_loss.item()
                     total_kl_loss += kl_loss.item()
                     total_batch += 1
+
                     bar.set_postfix(
                         recon_loss=float(total_recon_loss / total_batch),
                         kl_loss=float(total_kl_loss / total_batch),
                     )
 
 
-# if __name__ == "__main__":
-#     from torchsummary import summary
+class EWC:
+    """Elastic Weight Consolidation (specific to the MGVAE model)."""
 
-#     model = MGVAE(784, 64, 8)
-#     summary(model, (784,))
+    def __init__(
+        self,
+        model: MGVAE,
+        dataset: TensorDataset,
+        kl_loss_fn: str,
+        device: str,
+        N: int = 200,
+    ) -> None:
+        """
+        Initialize an elastic weight consolidation object.
+
+        The dataset (old task) used in the init will be downsampled and used to calculate the Monte Carlo estimates for Fisher Information.
+        The param importance calculated based on the data from the "old task"
+        """
+        self.model = model
+        self.dataset = dataset
+        self.device = device
+        self.params_old = dict(model.named_parameters())
+        self.fisher_information: dict = self._compute_fisher(kl_loss_fn, N)
+
+    def _compute_fisher(self, kl_loss_fn: str, N):
+        """Calculate diagonal elements in the information matrix."""
+        # retrieve a subset data
+        sample_dataset = Subset(
+            self.dataset, np.random.choice(len(self.dataset), N, replace=False)
+        )
+        x = (
+            sample_dataset.dataset.tensors[0][sample_dataset.indices]
+            .view(-1, self.model.input_dim)
+            .to(self.device)
+        )
+        # foward pass using mgvae_loss
+        xh, mu, logvar = self.model(x)
+        recon_loss, kl_loss = mgvae_loss(
+            xh,
+            x,
+            mu,
+            logvar,
+            self.model.compute_mg_prior_mu(),
+            self.model.logvar_major,
+            kl_loss_fn=kl_loss_fn,
+            device=self.device,
+            reduce=False,
+        )
+        # calculate fisher information using gradients
+        fisher_information = dict()
+        for n, p in self.model.named_parameters():
+            fisher_information[n] = torch.zeros_like(p)
+        for i in range(N):
+            gradients = torch.autograd.grad(
+                recon_loss[i] + kl_loss[i], self.model.parameters(), retain_graph=True
+            )
+            for j, n in enumerate(self.params_old):
+                fisher_information[n] += gradients[j] ** 2 / N
+
+        return fisher_information
+
+    def penalty(self, updated_model: nn.Module):
+        """Sum over all F(param_new - param_old)^2."""
+        loss = 0
+        for n, param_new in updated_model.parameters():
+            loss += (
+                self.fisher_information[n] * (param_new - self.params_old[n]) ** 2
+            ).sum()
+        return loss
