@@ -184,14 +184,17 @@ class MGVAE(nn.Module):
                 idx_cursor += len(X_batch)
         return mu_major
 
-    def evaluate(self, dataloader):
-        # TODO:
-        pass
-
     def finetune(
-        self, train_loader: DataLoader, kl_loss_fn: str, lr, epochs, verbose_period
+        self,
+        train_loader: DataLoader,
+        kl_loss_fn: str,
+        ewc_lambda,
+        lr,
+        epochs,
+        verbose_period,
     ):
         print("finetuning starts:")
+        # fisher information is calculated based on the pre-trained model
         ewc = EWC(self, self.majority_data, kl_loss_fn, self.device)
         optimizer = torch.optim.Adam(self.parameters(), lr=lr)
         for epoch in range(epochs):
@@ -219,7 +222,7 @@ class MGVAE(nn.Module):
                         self.device,
                     )
                     ewc_loss = ewc.penalty(self)
-                    loss = recon_loss + kl_loss + ewc_loss
+                    loss = recon_loss + kl_loss + ewc_lambda * ewc_loss
 
                     loss.backward()
                     optimizer.step()
@@ -233,6 +236,14 @@ class MGVAE(nn.Module):
                         recon_loss=float(total_recon_loss / total_batch),
                         kl_loss=float(total_kl_loss / total_batch),
                         ewc_loss=float(total_ewc_loss / total_batch),
+                        total=float(
+                            (
+                                total_recon_loss
+                                + total_kl_loss
+                                + ewc_lambda * total_ewc_loss
+                            )
+                            / total_batch
+                        ),
                     )
 
     def pretrain(
@@ -280,6 +291,7 @@ class MGVAE(nn.Module):
                     bar.set_postfix(
                         recon_loss=float(total_recon_loss / total_batch),
                         kl_loss=float(total_kl_loss / total_batch),
+                        total=float((total_recon_loss + total_kl_loss) / total_batch),
                     )
 
 
@@ -303,7 +315,9 @@ class EWC:
         self.model = model
         self.dataset = dataset
         self.device = device
-        self.params_old = dict(model.named_parameters())
+        self.params_old = dict()
+        for n, p in self.model.named_parameters():
+            self.params_old[n] = p.clone()
         self.fisher_information: dict = self._compute_fisher(kl_loss_fn, N)
 
     def _compute_fisher(self, kl_loss_fn: str, N):
@@ -346,7 +360,7 @@ class EWC:
     def penalty(self, updated_model: nn.Module):
         """Sum over all F(param_new - param_old)^2."""
         loss = 0
-        for n, param_new in updated_model.parameters():
+        for n, param_new in updated_model.named_parameters():
             loss += (
                 self.fisher_information[n] * (param_new - self.params_old[n]) ** 2
             ).sum()
