@@ -1,0 +1,6 @@
+pinned:
+1. after adding ewc regularization, loss keeps increasing in the fine-tuning stage
+	even having a large \lambda doesn't help
+
+trivial:
+1. GM<AM inequality and discrete jensen's inequality (log is concave) arrive at the same result
