@@ -9,41 +9,37 @@ from tqdm import tqdm
 from torch.utils.data import Dataset, TensorDataset, Subset, DataLoader
 
 
-def log_mg_prior(z, mu_major, logvar_major, device):
-    # z.shape = (T, m)
-    T, _ = z.shape
+def log_mg_prior(z, mu_major, logvar_major):
+    """Calculate the majority-guided prior `log r(z|x+)`."""
+    # note: z.shape = (T, B, m), mu_major.shape = (N, m)
     N, m = mu_major.shape
+    r_dist = dis.MultivariateNormal(mu_major, logvar_major.exp() * torch.eye(m))
 
-    mu_major = mu_major[None, :, :].repeat(T, 1, 1)
-    z = z[:, None, :].repeat(1, N, 1)
-    r_dist = dis.MultivariateNormal(
-        mu_major, logvar_major.exp() * torch.eye(m).to(device)
-    )
-    r_logpdf = r_dist.log_prob(z).to(device)
-    log_prior_pdf = r_logpdf.exp().mean(dim=1).log()
+    z = z[:, :, None, :].repeat(1, 1, N, 1)
+    r_logpdf = r_dist.log_prob(z)
+
+    dims = len(r_logpdf.shape)
+    log_prior_pdf = r_logpdf.exp().mean(dim=dims - 1).log()
+    # output.shape = (T, B)
     return log_prior_pdf
 
 
 def kl_estimated_loss(
-    mu_minor, logvar_minor, mu_major, logvar_major, device, reduce: bool, T=30
+    mu_minor, logvar_minor, mu_major, logvar_major, device: str, reduce: bool, T=30
 ):
-    """Calculate KL loss using an MC estimator."""
-    # TODO: allow to be reduced or not
+    """Calculate KL loss using MC estimation."""
     B, _ = mu_minor.shape
-    kl_loss = 0.0
 
-    for i in range(B):
-        q = dis.MultivariateNormal(mu_minor[i], logvar_minor[i].exp().diag())
-        z = q.sample(sample_shape=(T,)).to(device)
-        # ratio = prior_pdf / encoder_pdf
-        # estimate kl per (mu(x-), logvar(x-)) via sample mean of (ratio - 1) - log_ratio
-        log_ratio = log_mg_prior(z, mu_major, logvar_major.exp(), device) - q.log_prob(
-            z
-        ).to(device)
-        kl_est = ((log_ratio.exp() - 1) - log_ratio).mean()
-        kl_loss += kl_est / B
+    q = dis.MultivariateNormal(mu_minor, logvar_minor.exp().diag_embed())
+    z = q.sample(sample_shape=(T,)).to(device)
+    # z.shape is (T, B, m)
+    # define: ratio = prior_pdf / encoder_pdf
+    # estimate kl per (mu(x-), logvar(x-)) by the sample mean of (ratio - 1) - log_ratio
+    log_ratio = log_mg_prior(z, mu_major, logvar_major.exp()) - q.log_prob(z)
+    # log_ratio.shape = (T, B)
+    kl_est = ((log_ratio.exp() - 1) - log_ratio).mean(dim=0)
 
-    return kl_loss
+    return kl_est.mean() if reduce else kl_est
 
 
 def kl_lb_loss(mu_minor, logvar_minor, mu_major, logvar_major, reduce: bool):
@@ -80,6 +76,12 @@ def mgvae_loss(
     device: str,
     reduce: bool = True,
 ):
+    """
+    Calculate the two parts of the loss objective.
+
+    `reduce` (reduction to mean) is set to `True` by default.
+    One would set it to `False` for calculating fisher information in EWC.
+    """
     n_dims = len(x.shape)
     _reconstruction_loss = F.binary_cross_entropy(x_reconstr, x, reduction="none").sum(
         dim=list(range(n_dims))[1:]
@@ -103,6 +105,8 @@ def mgvae_loss(
 
 
 class MGVAE(nn.Module):
+    """Majority-Guided VAE."""
+
     def __init__(
         self,
         input_dim,
@@ -193,6 +197,7 @@ class MGVAE(nn.Module):
         epochs,
         verbose_period,
     ):
+        """Fine-tune with EWC."""
         print("finetuning starts:")
         # Fisher information calculated based on the pre-trained model
         ewc = EWC(self, self.majority_data, kl_loss_fn, self.device)
@@ -249,6 +254,7 @@ class MGVAE(nn.Module):
         epochs,
         verbose_period,
     ):
+        """Pre-train."""
         print("pre-training starts:")
         optimizer = torch.optim.Adam(self.parameters(), lr=lr)
         for epoch in range(epochs):
