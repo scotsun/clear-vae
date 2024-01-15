@@ -33,7 +33,7 @@ def kl_estimated_loss(
     q = dis.MultivariateNormal(mu_minor, logvar_minor.exp().diag_embed())
     z = q.sample(sample_shape=(T,)).to(device)
     # z.shape is (T, B, m)
-    # define: ratio = prior_pdf / encoder_pdf
+    # define: ratio = prior_pdf / encoder_pdf, see details at http://joschu.net/blog/kl-approx.html
     # estimate kl per (mu(x-), logvar(x-)) by the sample mean of (ratio - 1) - log_ratio
     log_ratio = log_mg_prior(z, mu_major, logvar_major.exp()) - q.log_prob(z)
     # log_ratio.shape = (T, B)
