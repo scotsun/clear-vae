@@ -8,18 +8,19 @@
 
 
 ### things can be improved from the MGVAE:
-1. the current objective function is computationally expensive as it requires MC sampling
-2. EWC is justified for log-likelihood so is for bce but not ours
+1. The current objective can be extended to **IWAE** 
+2. EWC is okay; however, *Nguyen et al. (2017) proposed* **VCL** framework more related to the variational framework (which is cited but not implemented in MGVAE)
+3. The current objective function is computationally expensive
 
-### current reults
-|![Original](./res/original.png)|
+### current reults for $\rho=100$
+|![Original](./res/100original.png)|
 |:---:|
 |Original "majority" images|
 
-|![With pre-training](./res/with_pt.png)|
+|![With pre-training](./res/100with_pt.png)|
 |:---:|
 |Transformed images (with pre-training)|
 
-|![Without pre-training](./res/wout_pt.png)|
+|![Without pre-training](./res/100wout_pt.png)|
 |:---:|
 |Transformed images (without pre-training)|
