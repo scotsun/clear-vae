@@ -1,11 +1,7 @@
 ### pinned issue:
-1. numerical results of the two estimator contradict with the inequality derivation
+1. numerical results of the two estimator contradict with the inequality derivation (the issue should be caused by `estimated` approach)
 2. after adding ewc regularization, loss keeps increasing in the fine-tuning stage
 	even having a large $\lambda$ doesn't help
-
-### trivially good stuff:
-1. GM-AM inequality and discrete jensen's inequality (log is concave) arrive at the same result
-
 
 ### things can be improved from the MGVAE:
 1. The current objective can be extended to **IWAE** 

@@ -42,8 +42,8 @@ def kl_estimated_loss(
     return kl_est.mean() if reduce else kl_est
 
 
-def kl_lb_loss(mu_minor, logvar_minor, mu_major, logvar_major, reduce: bool):
-    """Calculate KL loss's lower bound using another Jensen's Inequality."""
+def kl_ub_loss(mu_minor, logvar_minor, mu_major, logvar_major, reduce: bool):
+    """Calculate KL loss's upper bound using another Jensen's Inequality / GM-AM Inequality."""
     B, m = mu_minor.shape
     N, _ = mu_major.shape
 
@@ -95,8 +95,8 @@ def mgvae_loss(
             kl_regularization = kl_estimated_loss(
                 mu_minor, logvar_minor, mu_major, logvar_major, device, reduce
             )
-        case "lower_bound":
-            kl_regularization = kl_lb_loss(
+        case "upper_bound":
+            kl_regularization = kl_ub_loss(
                 mu_minor, logvar_minor, mu_major, logvar_major, reduce
             )
         case _:
