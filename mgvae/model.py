@@ -35,9 +35,9 @@ def kl_estimated_loss(
     # z.shape is (T, B, m)
     # define: ratio = prior_pdf / encoder_pdf, see details at http://joschu.net/blog/kl-approx.html
     # estimate kl per (mu(x-), logvar(x-)) by the sample mean of (ratio - 1) - log_ratio
-    log_ratio = log_mg_prior(z, mu_major, logvar_major.exp()) - q.log_prob(z)
+    log_ratio = q.log_prob(z) - log_mg_prior(z, mu_major, logvar_major)
     # log_ratio.shape = (T, B)
-    kl_est = ((log_ratio.exp() - 1) - log_ratio).mean(dim=0)
+    kl_est = log_ratio.mean(dim=0)
 
     return kl_est.mean() if reduce else kl_est
 

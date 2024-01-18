@@ -1,6 +1,7 @@
 ### pinned issue:
-1. numerical results of the two estimator contradict with the inequality derivation (the issue should be caused by `estimated` approach)
-2. after adding ewc regularization, loss keeps increasing in the fine-tuning stage
+1. <s>numerical results of the two estimator contradict with the inequality derivation (the issue should be caused by `estimated` approach)</s> (Solved!)
+2. gradient explosion on `logvar_major`
+3. after adding ewc regularization, loss keeps increasing in the fine-tuning stage
 	even having a large $\lambda$ doesn't help
 
 ### things can be improved from the MGVAE:
