@@ -9,35 +9,28 @@ from tqdm import tqdm
 from torch.utils.data import Dataset, TensorDataset, Subset, DataLoader
 
 
-def log_mg_prior(z, mu_major, logvar_major):
-    """Calculate the majority-guided prior `log r(z|x+)`."""
-    # note: z.shape = (T, B, m), mu_major.shape = (N, m)
-    N, m = mu_major.shape
-    r_dist = dis.MultivariateNormal(mu_major, logvar_major.exp() * torch.eye(m))
-
-    z = z[:, :, None, :].repeat(1, 1, N, 1)
-    r_logpdf = r_dist.log_prob(z)
-
-    dims = len(r_logpdf.shape)
-    log_prior_pdf = r_logpdf.exp().mean(dim=dims - 1).log()
-    # output.shape = (T, B)
-    return log_prior_pdf
-
-
 def kl_estimated_loss(
-    mu_minor, logvar_minor, mu_major, logvar_major, device: str, reduce: bool, T=30
+    z, mu_minor, logvar_minor, mu_major, logvar_major, device: str, reduce: bool
 ):
-    """Calculate KL loss using MC estimation."""
-    B, _ = mu_minor.shape
+    """Calculate KL loss using MC estimation over z."""
+    B, m = mu_minor.shape
+    N, _ = mu_major.shape
 
     q = dis.MultivariateNormal(mu_minor, logvar_minor.exp().diag_embed())
-    z = q.sample(sample_shape=(T,)).to(device)
-    # z.shape is (T, B, m)
-    # define: ratio = prior_pdf / encoder_pdf, see details at http://joschu.net/blog/kl-approx.html
-    # estimate kl per (mu(x-), logvar(x-)) by the sample mean of (ratio - 1) - log_ratio
-    log_ratio = q.log_prob(z) - log_mg_prior(z, mu_major, logvar_major)
-    # log_ratio.shape = (T, B)
-    kl_est = log_ratio.mean(dim=0)
+    # z.shape is (B, m)
+    # define: ratio = prior_pdf / encoder_pdf
+    # see details at http://joschu.net/blog/kl-approx.html
+    # estimate kl_loss by the sample mean of (ratio - 1) - log_ratio,
+    # which ensures positivity, unbiasedness, less variance
+    prior = dis.MultivariateNormal(
+        mu_major, logvar_major.exp() * torch.eye(m).to(device)
+    )
+    p_log_prob = prior.log_prob(z[:, None, :].repeat(1, N, 1))
+    mg_p_log_prob = p_log_prob.logsumexp(dim=1) - torch.tensor(N).log().to(device)
+
+    log_ratio = mg_p_log_prob - q.log_prob(z)
+    # log_ratio.shape = (B,)
+    kl_est = (log_ratio.exp() - 1) - log_ratio
 
     return kl_est.mean() if reduce else kl_est
 
@@ -68,6 +61,7 @@ def kl_ub_loss(mu_minor, logvar_minor, mu_major, logvar_major, reduce: bool):
 def mgvae_loss(
     x_reconstr,
     x,
+    z,
     mu_minor,
     logvar_minor,
     mu_major,
@@ -83,7 +77,7 @@ def mgvae_loss(
     One would set it to `False` for calculating fisher information in EWC.
     """
     n_dims = len(x.shape)
-    _reconstruction_loss = F.binary_cross_entropy(x_reconstr, x, reduction="none").sum(
+    _reconstruction_loss = F.mse_loss(x_reconstr, x, reduction="none").sum(
         dim=list(range(n_dims))[1:]
     )
     reconstruction_loss = (
@@ -93,7 +87,7 @@ def mgvae_loss(
     match kl_loss_fn:
         case "estimated":
             kl_regularization = kl_estimated_loss(
-                mu_minor, logvar_minor, mu_major, logvar_major, device, reduce
+                z, mu_minor, logvar_minor, mu_major, logvar_major, device, reduce
             )
         case "upper_bound":
             kl_regularization = kl_ub_loss(
@@ -124,7 +118,7 @@ class MGVAE(nn.Module):
         self.N_maj = N_maj
         self.device = device
 
-        self.logvar_major = nn.Parameter(torch.ones(1))
+        self.logvar_major = nn.Parameter(torch.tensor(1.0))
 
         self.encoder = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
@@ -165,7 +159,7 @@ class MGVAE(nn.Module):
         mu, logvar = self.encode(x)
         z = self.sample(mu, logvar)
         x_hat = self.decode(z)
-        return x_hat, mu, logvar
+        return x_hat, mu, logvar, z
 
     def compute_mg_prior_mu(self):
         """Calculate a majority guided prior using a sub-sample of the majority set."""
@@ -197,10 +191,15 @@ class MGVAE(nn.Module):
         epochs,
         verbose_period,
     ):
-        """Fine-tune with EWC."""
+        """
+        Fine-tuning with EWC.
+
+        `kl_loss_fn` is in {`upper_bound`, `estimated`}.
+        """
         print("finetuning starts:")
         # Fisher information calculated based on the pre-trained model
-        ewc = EWC(self, self.majority_data, kl_loss_fn, self.device)
+        if ewc_lambda > 0:
+            ewc = EWC(self, self.majority_data, kl_loss_fn, self.device)
         optimizer = torch.optim.Adam(self.parameters(), lr=lr)
         for epoch in range(epochs):
             total_recon_loss, total_kl_loss, total_ewc_loss = 0.0, 0.0, 0.0
@@ -214,12 +213,13 @@ class MGVAE(nn.Module):
                 for X_batch, _ in bar:
                     X_batch = X_batch.view(-1, self.input_dim).to(self.device)
                     optimizer.zero_grad()
-                    Xh_batch, mu_batch, logvar_batch = self(X_batch)
+                    Xh_batch, mu_batch, logvar_batch, z_batch = self(X_batch)
                     # get a sub-sample of majorities to compute prior
                     mu_major = self.compute_mg_prior_mu()
                     recon_loss, kl_loss = mgvae_loss(
                         Xh_batch,
                         X_batch,
+                        z_batch,
                         mu_batch,
                         logvar_batch,
                         mu_major,
@@ -227,7 +227,10 @@ class MGVAE(nn.Module):
                         kl_loss_fn,
                         self.device,
                     )
-                    ewc_loss = ewc.penalty(self)
+                    if ewc_lambda > 0:
+                        ewc_loss = ewc.penalty(self)
+                    else:
+                        ewc_loss = torch.tensor(0.0).to(self.device)
                     loss = recon_loss + kl_loss + ewc_lambda * ewc_loss
 
                     loss.backward()
@@ -245,6 +248,8 @@ class MGVAE(nn.Module):
                         ewc_loss=float(total_ewc_loss / total_batch),
                         total=float(total_loss / total_batch),
                     )
+            if verbose:
+                print(self.logvar_major.data)
 
     def pretrain(
         self,
@@ -254,7 +259,11 @@ class MGVAE(nn.Module):
         epochs,
         verbose_period,
     ):
-        """Pre-train."""
+        """
+        Pre-training.
+
+        `kl_loss_fn` is in {`upper_bound`, `estimated`}.
+        """
         print("pre-training starts:")
         optimizer = torch.optim.Adam(self.parameters(), lr=lr)
         for epoch in range(epochs):
@@ -269,12 +278,13 @@ class MGVAE(nn.Module):
                 for X_batch, _ in bar:
                     X_batch = X_batch.view(-1, self.input_dim).to(self.device)
                     optimizer.zero_grad()
-                    Xh_batch, mu_batch, logvar_batch = self(X_batch)
+                    Xh_batch, mu_batch, logvar_batch, z_batch = self(X_batch)
                     # get a sub-sample of majorities to compute prior
                     mu_major = self.compute_mg_prior_mu()
                     recon_loss, kl_loss = mgvae_loss(
                         Xh_batch,
                         X_batch,
+                        z_batch,
                         mu_batch,
                         logvar_batch,
                         mu_major,
@@ -296,6 +306,8 @@ class MGVAE(nn.Module):
                         kl_loss=float(total_kl_loss / total_batch),
                         total=float(total_loss / total_batch),
                     )
+            if verbose:
+                print(self.logvar_major.data)
 
 
 class EWC:
@@ -330,15 +342,18 @@ class EWC:
             self.dataset, np.random.choice(len(self.dataset), N, replace=False)
         )
         x = (
-            sample_dataset.dataset.tensors[0][sample_dataset.indices]
-            .view(-1, self.model.input_dim)
+            sample_dataset.dataset.tensors[0][sample_dataset.indices].view(
+                -1, self.model.input_dim
+            )
+            # .view(-1, 1, 28, 28)
             .to(self.device)
         )
         # foward pass using mgvae_loss
-        xh, mu, logvar = self.model(x)
+        xh, mu, logvar, z = self.model(x)
         recon_loss, kl_loss = mgvae_loss(
             xh,
             x,
+            z,
             mu,
             logvar,
             self.model.compute_mg_prior_mu(),
