@@ -8,4 +8,5 @@
 	a. [beta-VAE](https://arxiv.org/pdf/1804.03599.pdf)  
 	b. [beta-TCVAE](https://proceedings.neurips.cc/paper_files/paper/2018/file/1ee3dfcd8a0645a25a35977997223d22-Paper.pdf) (Isolating Sources of Disentanglement in VAEs)
 2. EWC is okay; however, *Nguyen et al. (2017) proposed* **VCL** framework more related to the variational framework (which is cited but not implemented in MGVAE)
-3. The current objective can be extended to **IWAE or VQ-VAE**
+3. The current objective can be extended to **VQ-VAE**
+4. Optimal transportation theory
