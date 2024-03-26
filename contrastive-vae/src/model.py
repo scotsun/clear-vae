@@ -50,20 +50,47 @@ class VAE(nn.Module):
         return x
 
     def sample(self, mu, log_var):
+        """Reparameterization."""
         std = torch.exp(0.5 * log_var)
         eps = torch.randn_like(std)
         return mu + eps * std
 
-    def generate(self, mu_c, mu_s, logvar_c, logvar_s, test_verbose=False):
+    def generate(self, mu_c, logvar_c, mu_s, logvar_s, explicit=False):
+        """
+        explicit: bool indicating if return generated latent z
+        """
         z_c = self.sample(mu_c, logvar_c)
         z_s = self.sample(mu_s, logvar_s)
         z = torch.cat([z_c, z_s], dim=1)
-        if test_verbose:
-            print(z[0])
         xhat = self.decode(z)
-        return xhat
+        if explicit:
+            return xhat, z
+        else:
+            return xhat
 
-    def forward(self, x, test_verbose=False):
+    def forward(self, x, explicit=False) -> tuple:
         mu_c, logvar_c, mu_s, logvar_s = self.encode(x)
-        xhat = self.generate(mu_c, logvar_c, mu_s, logvar_s, test_verbose)
-        return xhat, mu_c, logvar_c, mu_s, logvar_s
+        latent_param = {
+            "mu_c": mu_c,
+            "logvar_c": logvar_c,
+            "mu_s": mu_s,
+            "logvar_s": logvar_s,
+        }
+        if explicit:
+            xhat, z = self.generate(mu_c, logvar_c, mu_s, logvar_s, True)
+            return xhat, latent_param, z
+        else:
+            xhat = self.generate(mu_c, logvar_c, mu_s, logvar_s, False)
+            return xhat, latent_param
+
+
+def interpolate_latent(latent1, latent2, num_steps, device):
+    """Interpolate between two latent vectors."""
+    p = torch.linspace(1, 0, num_steps).to(device)
+    # reshape to interpolation matrix shape (num_step, latent_dim)
+    latent_dim = latent1.shape[-1]
+    p = p[:, None].repeat((1, latent_dim))
+    latent1 = latent1[None, :].repeat((num_steps, 1))
+    latent2 = latent2[None, :].repeat((num_steps, 1))
+    # generate interpolation matrix
+    return p * latent1 + (1 - p) * latent2
