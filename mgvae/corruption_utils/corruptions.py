@@ -32,7 +32,7 @@ import cv2
 from scipy.ndimage import zoom as scizoom
 from scipy.ndimage.interpolation import map_coordinates
 import warnings
-import os
+from pathlib import Path
 from pkg_resources import resource_filename
 
 warnings.simplefilter("ignore", UserWarning)
@@ -91,8 +91,9 @@ ALL_CORRUPTIONS = [
     "canny_edges",
 ]
 
-
-with open("pessimal_noise_matrix", "rb") as f:
+module_dir = Path(__file__).parent
+datafile_path = module_dir / "pessimal_noise_matrix"
+with open(datafile_path, "rb") as f:
     pessimal_noise_matrix = pickle.load(f)
 
 
@@ -367,8 +368,9 @@ def frost(x, severity=5):
     ][idx]
     frost = cv2.imread(filename, 0)
     # randomly crop and convert to rgb
-    x_start, y_start = np.random.randint(0, frost.shape[0] - 28), np.random.randint(
-        0, frost.shape[1] - 28
+    x_start, y_start = (
+        np.random.randint(0, frost.shape[0] - 28),
+        np.random.randint(0, frost.shape[1] - 28),
     )
     frost = frost[x_start : x_start + 28, y_start : y_start + 28]
 
