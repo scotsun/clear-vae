@@ -3,10 +3,10 @@
 import numpy as np
 import torch
 import torchvision
+import torchvision.transforms as transforms
 from torch.utils.data import Dataset
 from tqdm import tqdm
 from IPython import display
-import torchvision.transforms as transforms
 
 
 class MNISTPairGenerator:
