@@ -3,6 +3,8 @@
 import random
 from torch.utils.data import Dataset
 from tqdm import tqdm
+from IPython import display
+import torchvision.transforms as transforms
 
 
 class ImbalancePairGenerator:
@@ -72,3 +74,8 @@ class PairDataset(Dataset):
         img1, img2, label = self.dataset[idx]
         img1, img2 = self.transform(img1), self.transform(img2)
         return img1, img2, label
+
+    def display(self, idx):
+        img1, img2, pair_label = self.__getitem__(idx)
+        print(f"label: {int(pair_label)}")
+        display(transforms.ToPILImage()(img1), transforms.ToPILImage()(img2))
