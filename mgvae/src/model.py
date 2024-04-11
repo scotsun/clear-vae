@@ -13,42 +13,47 @@ class MGVAE(nn.Module):
 
     def __init__(
         self,
-        input_dim,
-        hidden_dim,
         latent_dim,
         majority_data: Dataset,
         N_maj: int,
         device,
     ) -> None:
         super().__init__()
-        self.input_dim = input_dim
-        self.hidden_dim = hidden_dim
         self.latent_dim = latent_dim
         self.majority_data = majority_data
         self.N_maj = N_maj
         self.device = device
 
         self.logvar_major = nn.Parameter(torch.tensor(1.0))
-
+        # encoder
         self.encoder = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
-            nn.BatchNorm1d(hidden_dim),
+            nn.Conv2d(1, 32, 3, 2, 1),
+            nn.BatchNorm2d(32),
             nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.BatchNorm1d(hidden_dim),
+            nn.Conv2d(32, 64, 3, 2, 1),
+            nn.BatchNorm2d(64),
             nn.ReLU(),
+            nn.Conv2d(64, 128, 3, 2, 1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.Flatten(),
         )
-        self.fc_mu = nn.Linear(hidden_dim, latent_dim)
-        self.fc_logvar = nn.Linear(hidden_dim, latent_dim)
-
+        self.fc_mu = nn.Linear(2048, latent_dim)
+        self.fc_logvar = nn.Linear(2048, latent_dim)
+        # decoder
         self.decoder = nn.Sequential(
-            nn.Linear(latent_dim, hidden_dim),
-            nn.BatchNorm1d(hidden_dim),
+            nn.Linear(latent_dim, 2048),
+            nn.BatchNorm1d(2048),
             nn.ReLU(),
-            nn.Linear(hidden_dim, hidden_dim),
-            nn.BatchNorm1d(hidden_dim),
+            nn.Unflatten(1, (128, 4, 4)),
+            nn.ConvTranspose2d(128, 64, 3, 2, 1, 0),
+            nn.BatchNorm2d(64),
             nn.ReLU(),
-            nn.Linear(hidden_dim, input_dim),
+            nn.ConvTranspose2d(64, 32, 3, 2, 1, 1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+            nn.ConvTranspose2d(32, 1, 3, 2, 1, 1),
+            nn.BatchNorm2d(1),
             nn.Sigmoid(),
         )
 
@@ -86,7 +91,7 @@ class MGVAE(nn.Module):
         idx_cursor = 0
         with torch.no_grad():
             for X_batch, _ in majority_dl:
-                X_batch = X_batch.view(-1, self.input_dim).to(self.device)
+                X_batch = X_batch.to(self.device)
                 mu_batch, _ = self.encode(X_batch)
                 mu_major[idx_cursor : (idx_cursor + len(X_batch)), :] = mu_batch
                 idx_cursor += len(X_batch)
@@ -121,7 +126,7 @@ class MGVAE(nn.Module):
             ) as bar:
                 bar.set_description(f"Epoch {epoch}")
                 for X_batch, _ in bar:
-                    X_batch = X_batch.view(-1, self.input_dim).to(self.device)
+                    X_batch = X_batch.to(self.device)
                     optimizer.zero_grad()
                     Xh_batch, mu_batch, logvar_batch, z_batch = self(X_batch)
                     # get a sub-sample of majorities to compute prior
@@ -186,7 +191,7 @@ class MGVAE(nn.Module):
             ) as bar:
                 bar.set_description(f"Epoch {epoch}")
                 for X_batch, _ in bar:
-                    X_batch = X_batch.view(-1, self.input_dim).to(self.device)
+                    X_batch = X_batch.to(self.device)
                     optimizer.zero_grad()
                     Xh_batch, mu_batch, logvar_batch, z_batch = self(X_batch)
                     # get a sub-sample of majorities to compute prior
@@ -251,11 +256,7 @@ class EWC:
         sample_dataset = Subset(
             self.dataset, np.random.choice(len(self.dataset), N, replace=False)
         )
-        x = (
-            next(iter(DataLoader(sample_dataset, N, shuffle=True)))[0]
-            .view(-1, self.model.input_dim)
-            .to(self.device)
-        )
+        x = next(iter(DataLoader(sample_dataset, N, shuffle=True)))[0].to(self.device)
 
         # foward pass using mgvae_loss
         xh, mu, logvar, z = self.model(x)
