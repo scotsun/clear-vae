@@ -2,6 +2,7 @@
 
 import torch
 import torch.nn.functional as F
+from torch import Tensor, jit
 
 
 def vae_loss(x_reconstr, x, mu_c, mu_s, logvar_c, logvar_s):
@@ -44,7 +45,7 @@ def contrastive_loss(
     return loss.mean()
 
 
-# Similarity measures
+# Pairwise similarity measures
 def pairwise_cosine(mu: torch.Tensor):
     return F.cosine_similarity(mu[None, :, :], mu[:, None, :], dim=-1)
 
@@ -64,28 +65,38 @@ def pairwise_bhattacharyya_coef(mu: torch.Tensor, logvar: torch.Tensor):
     term2 = torch.log(
         sigma_avg.prod(dim=-1) / (det_sigma[None, :] * det_sigma[:, None]).sqrt()
     )
-    # pairwise
     bd = 1 / 8 * term1 + 1 / 2 * term2
     bc = torch.exp(-bd)
     return bc
 
 
+@jit.script
+def logsumexp(x: Tensor, dim: int) -> Tensor:
+    """Stable logsumexp."""
+    # cite: https://github.com/pytorch/pytorch/issues/31829
+    m, _ = x.max(dim=dim)
+    mask = m == -float("inf")
+
+    s = (x - m.masked_fill_(mask, 0).unsqueeze(dim=dim)).exp().sum(dim=dim)
+    return s.masked_fill_(mask, 1).log() + m.masked_fill_(mask, -float("inf"))
+
+
 # NT-Xent Loss
 def _nt_xent_loss(sim: torch.Tensor, pos_target: torch.Tensor):
     n = sim.shape[0]
+    sim = sim.clone()
     sim[torch.eye(n).bool()] = float("-Inf")
 
     neg_mask = pos_target == 0
     pos = pos_target * sim
     pos[neg_mask] = float("-Inf")
 
-    loss = -pos.logsumexp(dim=1) + sim.logsumexp(dim=1)
+    loss = -logsumexp(pos, dim=1) + logsumexp(sim, dim=1)
     return loss
 
 
-def nt_xent_loss(
-    mu: torch.Tensor, logvar: torch.Tensor, pos_target: torch.Tensor, sim_fn
-):
+def nt_xent_loss(mu: torch.Tensor, logvar: torch.Tensor, label: torch.Tensor, sim_fn):
+    pos_target = (label[None, :] == label[:, None]).float()
     match sim_fn:
         case "cosine":
             sim = pairwise_cosine(mu)
@@ -95,4 +106,6 @@ def nt_xent_loss(
             sim = pairwise_bhattacharyya_coef(mu, logvar)
         case _:
             raise ValueError("unimplemented similarity measure.")
-    return _nt_xent_loss(sim, pos_target)
+    losses = _nt_xent_loss(sim, pos_target)
+    finite_mask = torch.isfinite(losses)
+    return losses[finite_mask].mean()
