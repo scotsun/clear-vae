@@ -106,16 +106,20 @@ class SimCLRTrainer(Trainer):
         model: nn.Module,
         optimizer: Optimizer,
         sim_fn: str,
+        hyperparameter: dict[str, float],
         verbose_period: int,
         device: torch.device,
     ) -> None:
         super().__init__(model, optimizer, verbose_period, device)
         self.sim_fn = sim_fn
+        self.hyperparameter = hyperparameter
 
     def _train(self, dataloader: DataLoader, verbose: int, epoch_id: int):
         vae = self.model
         optimizer = self.optimizer
         device = self.device
+        temperature = self.hyperparameter["temperature"]
+        beta = self.hyperparameter["beta"]
         with tqdm(dataloader, unit="batch", mininterval=0, disable=not verbose) as bar:
             bar.set_description(f"Epoch {epoch_id}")
             for X, label in bar:
@@ -131,9 +135,10 @@ class SimCLRTrainer(Trainer):
                     logvar=latent_params["logvar_c"],
                     label=label,
                     sim_fn=self.sim_fn,
+                    temperature=temperature,
                 )
 
-                loss = _vae_loss + ntxent_loss
+                loss = _vae_loss + beta * ntxent_loss
 
                 loss.backward()
                 optimizer.step()

@@ -82,7 +82,7 @@ def logsumexp(x: Tensor, dim: int) -> Tensor:
 
 
 # NT-Xent Loss
-def _nt_xent_loss(sim: torch.Tensor, pos_target: torch.Tensor):
+def _nt_xent_loss(sim: torch.Tensor, pos_target: torch.Tensor, temperature: float):
     n = sim.shape[0]
     sim = sim.clone()
     sim[torch.eye(n).bool()] = float("-Inf")
@@ -91,11 +91,17 @@ def _nt_xent_loss(sim: torch.Tensor, pos_target: torch.Tensor):
     pos = pos_target * sim
     pos[neg_mask] = float("-Inf")
 
-    loss = -logsumexp(pos, dim=1) + logsumexp(sim, dim=1)
+    loss = -logsumexp(pos / temperature, dim=1) + logsumexp(sim / temperature, dim=1)
     return loss
 
 
-def nt_xent_loss(mu: torch.Tensor, logvar: torch.Tensor, label: torch.Tensor, sim_fn):
+def nt_xent_loss(
+    mu: torch.Tensor,
+    logvar: torch.Tensor,
+    label: torch.Tensor,
+    sim_fn: str,
+    temperature: float,
+):
     pos_target = (label[None, :] == label[:, None]).float()
     match sim_fn:
         case "cosine":
@@ -106,6 +112,6 @@ def nt_xent_loss(mu: torch.Tensor, logvar: torch.Tensor, label: torch.Tensor, si
             sim = pairwise_bhattacharyya_coef(mu, logvar)
         case _:
             raise ValueError("unimplemented similarity measure.")
-    losses = _nt_xent_loss(sim, pos_target)
+    losses = _nt_xent_loss(sim, pos_target, temperature)
     finite_mask = torch.isfinite(losses)
     return losses[finite_mask].mean()
