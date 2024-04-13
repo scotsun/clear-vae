@@ -137,7 +137,10 @@ class SimCLRTrainer(Trainer):
                     sim_fn=self.sim_fn,
                     temperature=temperature,
                 )
-
+                # if torch.isnan(_vae_loss):
+                #     raise ValueError("vae_loss went wrong")
+                # if torch.isnan(ntxent_loss):
+                #     raise ValueError("ntxent went wrong")
                 loss = _vae_loss + beta * ntxent_loss
 
                 loss.backward()

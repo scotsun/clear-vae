@@ -1,0 +1,4 @@
+good disentanglement:
+    small temperature high beta
+
+    measure should not involve inv(Sigma) in l2 norm on mu_diff
