@@ -57,13 +57,13 @@ def pairwise_variance_adjusted_cosine(mu: torch.Tensor, logvar: torch.Tensor):
 
 
 def pairwise_bhattacharyya_coef(mu: torch.Tensor, logvar: torch.Tensor):
-    sigma = logvar.exp().sqrt()
-    sigma_avg = 0.5 * (sigma[None, :, :] + sigma[:, None, :])  # pairwise avg
-    term1 = ((mu[None, :, :] - mu[:, None, :]) ** 2 / sigma_avg).sum(dim=-1)
+    var = logvar.exp()
+    var_avg = 0.5 * (var[None, :, :] + var[:, None, :])  # pairwise avg
+    term1 = ((mu[None, :, :] - mu[:, None, :]) ** 2 / var_avg).sum(dim=-1)
 
-    det_sigma = sigma.prod(dim=-1)  # get det_sigma_1, det_sigma_2,...
+    det_var = var.prod(dim=-1)  # get det_sigma_1, det_sigma_2,...
     term2 = torch.log(
-        sigma_avg.prod(dim=-1) / (det_sigma[None, :] * det_sigma[:, None]).sqrt()
+        var_avg.prod(dim=-1) / (det_var[None, :] * det_var[:, None]).sqrt()
     )
     bd = 1 / 8 * term1 + 1 / 2 * term2
     bc = torch.exp(-bd)
