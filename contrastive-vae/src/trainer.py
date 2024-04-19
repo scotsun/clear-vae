@@ -4,7 +4,7 @@ import torch.nn as nn
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from src.losses import vae_loss, contrastive_loss, nt_xent_loss
+from src.losses import vae_loss, contrastive_loss, nt_xent_loss, accurary
 
 
 class Trainer:
@@ -41,7 +41,7 @@ class CDTrainer(Trainer):
         super().__init__(model, optimizer, verbose_period, device)
         self.fully_supervised = fully_supervised
 
-    def _train(self, dataloader: DataLoader, verbose: int, epoch_id: int):
+    def _train(self, dataloader: DataLoader, verbose: bool, epoch_id: int):
         self.model.train()
         device = self.device
         vae = self.model
@@ -100,6 +100,40 @@ class CDTrainer(Trainer):
         return
 
 
+class SimpleCNNTrainer(Trainer):
+    def __init__(
+        self,
+        model: nn.Module,
+        optimizer: Optimizer,
+        criterion: nn.Module,
+        verbose_period: int,
+        device: torch.device,
+    ) -> None:
+        super().__init__(model, optimizer, verbose_period, device)
+        self.criterion = criterion
+
+    def _train(self, dataloader: DataLoader, verbose: bool, epoch_id: int):
+        cnn = self.model
+        device = self.device
+        optimizer = self.optimizer
+        criterion = self.criterion
+        cnn.train()
+
+        with tqdm(dataloader, unit="batch", disable=not verbose) as bar:
+            bar.set_description(f"epoch {epoch_id}")
+            for X_batch, y_batch in bar:
+                X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+                optimizer.zero_grad()
+                logits = cnn(X_batch)
+                loss = criterion(logits, y_batch)
+                loss.backward()
+                optimizer.step()
+
+                # update running stats
+                acc = accurary(logits, y_batch)
+                bar.set_postfix(loss=float(loss), acc=float(acc))
+
+
 class SimCLRTrainer(Trainer):
     def __init__(
         self,
@@ -114,7 +148,7 @@ class SimCLRTrainer(Trainer):
         self.sim_fn = sim_fn
         self.hyperparameter = hyperparameter
 
-    def _train(self, dataloader: DataLoader, verbose: int, epoch_id: int):
+    def _train(self, dataloader: DataLoader, verbose: bool, epoch_id: int):
         vae = self.model
         optimizer = self.optimizer
         device = self.device

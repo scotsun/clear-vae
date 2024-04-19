@@ -5,6 +5,11 @@ import torch.nn.functional as F
 from torch import Tensor, jit
 
 
+def accurary(logit: torch.Tensor, y: torch.Tensor):
+    yh = logit.argmax(dim=1)
+    return (yh == y).float().mean()
+
+
 def vae_loss(x_reconstr, x, mu_c, mu_s, logvar_c, logvar_s):
     """
     VAE loss with separating factors.

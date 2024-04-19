@@ -4,6 +4,27 @@ import torch
 import torch.nn as nn
 
 
+class SimpleCNNClassifier(nn.Module):
+    def __init__(self, n_class: int = 10) -> None:
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Conv2d(1, 32, 3, 2, 1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+            nn.Conv2d(32, 64, 3, 2, 1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            nn.Conv2d(64, 128, 3, 2, 1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.Flatten(),
+            nn.Linear(2048, n_class),
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+
 class VAE(nn.Module):
     def __init__(self, z_dim) -> None:
         super().__init__()

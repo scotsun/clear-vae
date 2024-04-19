@@ -82,3 +82,49 @@ class PairDataset(Dataset):
         img1, img2, content_label, style_label = self.__getitem__(idx)
         print(f"content label: {int(content_label)}, style label: {style_label}")
         display(transforms.ToPILImage()(img1), transforms.ToPILImage()(img2))
+
+
+class CMNISTGenerator:
+    def __init__(self, dataset: Dataset, corruption_fns: None | dict) -> None:
+        self.dataset = dataset
+        self.corruption_fns = corruption_fns
+
+    def __getitem__(self, idx):
+        img, label = self.dataset[idx]
+        if self.corruption_fns is not None:
+            cfn = np.random.choice(
+                list(self.corruption_fns.keys()), p=list(self.corruption_fns.values())
+            )
+            img = cfn(img)
+            return img, label
+        else:
+            return img, label
+
+    @property
+    def size(self):
+        return len(self.dataset)
+
+
+class CMNIST(Dataset):
+    def __init__(self, generator, transform) -> None:
+        super().__init__()
+        self.generator = generator
+        self.transform = transform
+        self.N = generator.size
+        self.dataset = [None] * self.N
+        with tqdm(range(self.N), unit="item") as bar:
+            bar.set_description("Generating dataset")
+            for i in bar:
+                self.dataset[i] = self.generator[i]
+
+    def __len__(self):
+        return self.N
+
+    def __getitem__(self, idx) -> tuple:
+        img, label = self.dataset[idx]
+        img = self.transform(img)
+        return img, label
+
+    def display(self, idx):
+        img, _ = self.__getitem__(idx)
+        display(transforms.ToPILImage()(img))
