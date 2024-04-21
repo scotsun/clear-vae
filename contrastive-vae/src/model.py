@@ -26,8 +26,9 @@ class SimpleCNNClassifier(nn.Module):
 
 
 class VAE(nn.Module):
-    def __init__(self, z_dim) -> None:
+    def __init__(self, total_z_dim) -> None:
         super().__init__()
+        z_dim = int(total_z_dim / 2)
         # encoder
         self.encoder = nn.Sequential(
             nn.Conv2d(1, 32, 3, 2, 1),

@@ -3,11 +3,16 @@ good disentanglement:
 
     measure should not involve inv(Sigma) in l2 norm on mu_diff
 
-expr set-up:
-1. seperate by 5 vs not 5:
-    5 keep the same
-    non-5 go through CMNIST dataset
-2. concat to form train data
+expr_one:
+    set-up:
+        1. seperate by 5 vs not 5:
+            5 keep the same
+            non-5 go through CMNIST dataset
+        2. concat to form train data
 
-3. test data: 5 go through CMNIST
-check classification acc based on mu_c
+        3. test data: 5 go through CMNIST
+
+        check classification acc based on mu_c
+    result:
+        require style-overlap between 5s and non-5s
+        (of course not complete overlap)

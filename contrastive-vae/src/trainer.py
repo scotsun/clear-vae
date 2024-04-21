@@ -20,12 +20,22 @@ class Trainer:
         self.verbose_period = verbose_period
         self.device = device
 
-    def fit(self, train_loader: DataLoader, epochs: int):
+    def fit(
+        self,
+        epochs: int,
+        train_loader: DataLoader,
+        valid_loader: None | DataLoader = None,
+    ):
         for epoch in range(epochs):
             verbose = (epoch % self.verbose_period) == 0
             self._train(train_loader, verbose, epoch)
+            if valid_loader is not None:
+                self._valid(valid_loader, verbose, epoch)
 
     def _train(self, **kwarg):
+        pass
+
+    def _valid(self, **kwarg):
         pass
 
 
@@ -132,6 +142,22 @@ class SimpleCNNTrainer(Trainer):
                 # update running stats
                 acc = accurary(logits, y_batch)
                 bar.set_postfix(loss=float(loss), acc=float(acc))
+
+    def _valid(self, dataloader: DataLoader, verbose: bool, epoch_id: int):
+        cnn = self.model
+        device = self.device
+        cnn.eval()
+        total_acc = 0
+        with torch.no_grad():
+            for X_batch, y_batch in tqdm(
+                dataloader, disable=not verbose, desc=f"val-epoch {epoch_id}"
+            ):
+                X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+                logits = cnn(X_batch)
+                acc = accurary(logits, y_batch)
+                total_acc += acc.item()
+        if verbose:
+            print("val_acc={:.3f}".format(total_acc / len(dataloader)))
 
 
 class SimCLRTrainer(Trainer):
