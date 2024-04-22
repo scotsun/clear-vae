@@ -5,14 +5,28 @@ good disentanglement:
 
 expr_one:
     set-up:
-        1. seperate by 5 vs not 5:
+        1. seperate by 5 vs not 5,
             5 keep the same
             non-5 go through CMNIST dataset
-        2. concat to form train data
 
-        3. test data: 5 go through CMNIST
+        2. concat to form train data,
+
+        3. test data := 5 go through CMNIST
 
         check classification acc based on mu_c
     result:
         require style-overlap between 5s and non-5s
         (of course not complete overlap)
+        {
+            corruptions.stripe: 0.3,
+            corruptions.zigzag: 0.3,
+            corruptions.canny_edges: 0.4,
+        }
+        cnn 0.610, cd-vae + mlp 0.714
+
+        {
+            corruptions.dotted_line: 0.5,
+            corruptions.brightness: 0.5,
+        }
+        cnn 0.411, cd-vae + mlp 0.480
+        
