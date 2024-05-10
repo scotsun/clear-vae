@@ -10,7 +10,7 @@ def accurary(logit: torch.Tensor, y: torch.Tensor):
     return (yh == y).float().mean()
 
 
-def vae_loss(x_reconstr, x, mu_c, mu_s, logvar_c, logvar_s):
+def vae_loss(x_reconstr, x, mu_c, mu_s, logvar_c, logvar_s, beta: float = 1.0):
     """
     VAE loss with separating factors.
     """
@@ -24,7 +24,7 @@ def vae_loss(x_reconstr, x, mu_c, mu_s, logvar_c, logvar_s):
     )
     kl_c = -0.5 * torch.mean(1 + logvar_c - mu_c.pow(2) - logvar_c.exp())
     kl_s = -0.5 * torch.mean(1 + logvar_s - mu_s.pow(2) - logvar_s.exp())
-    return reconstruction_loss + 1 * (kl_c + kl_s)
+    return reconstruction_loss + beta * (kl_c + kl_s)
 
 
 def divergence_fn(mu_b_c, mu_p_c, logvar_b_c, logvar_p_c, metric="mahalanobis"):

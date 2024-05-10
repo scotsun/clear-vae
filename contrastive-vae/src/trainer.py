@@ -181,6 +181,7 @@ class SimCLRTrainer(Trainer):
         device = self.device
         temperature = self.hyperparameter["temperature"]
         beta = self.hyperparameter["beta"]
+        alpha = self.hyperparameter["alpha"]
         with tqdm(dataloader, unit="batch", mininterval=0, disable=not verbose) as bar:
             bar.set_description(f"Epoch {epoch_id}")
             for X, label, _ in bar:
@@ -190,7 +191,7 @@ class SimCLRTrainer(Trainer):
 
                 X_hat, latent_params = vae(X)
 
-                _vae_loss = vae_loss(X_hat, X, **latent_params)
+                _vae_loss = vae_loss(X_hat, X, **latent_params, beta=beta)
                 _ntxent_loss = nt_xent_loss(
                     mu=latent_params["mu_c"],
                     logvar=latent_params["logvar_c"],
@@ -206,7 +207,11 @@ class SimCLRTrainer(Trainer):
                     temperature=temperature,
                 )
 
-                loss = _vae_loss + beta * _ntxent_loss + beta * _reverse_ntxent_loss
+                loss = (
+                    _vae_loss
+                    + alpha[0] * _ntxent_loss
+                    + alpha[1] * _reverse_ntxent_loss
+                )
 
                 loss.backward()
                 optimizer.step()
@@ -222,6 +227,7 @@ class SimCLRTrainer(Trainer):
         vae.eval()
         device = self.device
         temperature = self.hyperparameter["temperature"]
+        beta = self.hyperparameter["beta"]
         total_vae_loss, total_c_loss, total_s_loss = 0.0, 0.0, 0.0
         with torch.no_grad():
             for X, label, _ in tqdm(
@@ -232,7 +238,7 @@ class SimCLRTrainer(Trainer):
 
                 X_hat, latent_params = vae(X)
 
-                _vae_loss = vae_loss(X_hat, X, **latent_params)
+                _vae_loss = vae_loss(X_hat, X, **latent_params, beta=beta)
                 _ntxent_loss = nt_xent_loss(
                     mu=latent_params["mu_c"],
                     logvar=latent_params["logvar_c"],
