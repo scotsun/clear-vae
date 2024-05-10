@@ -87,18 +87,19 @@ class PairDataset(Dataset):
 class CMNISTGenerator:
     def __init__(self, dataset: Dataset, corruption_fns: None | dict) -> None:
         self.dataset = dataset
-        self.corruption_fns = corruption_fns
+        self.corruption_fns = list(corruption_fns.keys())
+        self.corruption_fns_p = list(corruption_fns.values())
 
     def __getitem__(self, idx):
         img, label = self.dataset[idx]
         if self.corruption_fns is not None:
-            cfn = np.random.choice(
-                list(self.corruption_fns.keys()), p=list(self.corruption_fns.values())
+            cfn_idx = np.random.choice(
+                len(self.corruption_fns), p=self.corruption_fns_p
             )
-            img = cfn(img)
-            return img, label
+            img = self.corruption_fns[cfn_idx](img)
+            return img, label, cfn_idx
         else:
-            return img, label
+            return img, label, 0
 
     @property
     def size(self):
@@ -121,10 +122,10 @@ class CMNIST(Dataset):
         return self.N
 
     def __getitem__(self, idx) -> tuple:
-        img, label = self.dataset[idx]
+        img, label, style = self.dataset[idx]
         img = self.transform(img)
-        return img, label
+        return img, label, style
 
     def display(self, idx):
-        img, _ = self.__getitem__(idx)
+        img, _, _ = self.__getitem__(idx)
         display(transforms.ToPILImage()(img))

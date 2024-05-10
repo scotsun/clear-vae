@@ -22,7 +22,7 @@ expr_one:
             corruptions.zigzag: 0.3,
             corruptions.canny_edges: 0.4,
         }
-        cnn 0.610, cd-vae + mlp 0.714
+        cnn 0.680, cd-vae + mlp 0.726
 
         {
             corruptions.dotted_line: 0.5,

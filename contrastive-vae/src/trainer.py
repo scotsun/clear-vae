@@ -131,7 +131,7 @@ class SimpleCNNTrainer(Trainer):
 
         with tqdm(dataloader, unit="batch", disable=not verbose) as bar:
             bar.set_description(f"epoch {epoch_id}")
-            for X_batch, y_batch in bar:
+            for X_batch, y_batch, _ in bar:
                 X_batch, y_batch = X_batch.to(device), y_batch.to(device)
                 optimizer.zero_grad()
                 logits = cnn(X_batch)
@@ -149,7 +149,7 @@ class SimpleCNNTrainer(Trainer):
         cnn.eval()
         total_acc = 0
         with torch.no_grad():
-            for X_batch, y_batch in tqdm(
+            for X_batch, y_batch, _ in tqdm(
                 dataloader, disable=not verbose, desc=f"val-epoch {epoch_id}"
             ):
                 X_batch, y_batch = X_batch.to(device), y_batch.to(device)
@@ -176,13 +176,14 @@ class SimCLRTrainer(Trainer):
 
     def _train(self, dataloader: DataLoader, verbose: bool, epoch_id: int):
         vae = self.model
+        vae.train()
         optimizer = self.optimizer
         device = self.device
         temperature = self.hyperparameter["temperature"]
         beta = self.hyperparameter["beta"]
         with tqdm(dataloader, unit="batch", mininterval=0, disable=not verbose) as bar:
             bar.set_description(f"Epoch {epoch_id}")
-            for X, label in bar:
+            for X, label, _ in bar:
                 optimizer.zero_grad()
                 X = X.to(device)
                 label = label.to(device)
@@ -190,23 +191,70 @@ class SimCLRTrainer(Trainer):
                 X_hat, latent_params = vae(X)
 
                 _vae_loss = vae_loss(X_hat, X, **latent_params)
-                ntxent_loss = nt_xent_loss(
+                _ntxent_loss = nt_xent_loss(
                     mu=latent_params["mu_c"],
                     logvar=latent_params["logvar_c"],
                     label=label,
                     sim_fn=self.sim_fn,
                     temperature=temperature,
                 )
-                # if torch.isnan(_vae_loss):
-                #     raise ValueError("vae_loss went wrong")
-                # if torch.isnan(ntxent_loss):
-                #     raise ValueError("ntxent went wrong")
-                loss = _vae_loss + beta * ntxent_loss
+                _reverse_ntxent_loss = -nt_xent_loss(
+                    mu=latent_params["mu_s"],
+                    logvar=latent_params["logvar_s"],
+                    label=label,
+                    sim_fn=self.sim_fn,
+                    temperature=temperature,
+                )
+
+                loss = _vae_loss + beta * _ntxent_loss + beta * _reverse_ntxent_loss
 
                 loss.backward()
                 optimizer.step()
                 bar.set_postfix(
                     vae_loss=float(_vae_loss),
-                    c_loss=float(ntxent_loss),
+                    c_loss=float(_ntxent_loss),
+                    s_loss=float(_reverse_ntxent_loss),
                 )
         return
+
+    def _valid(self, dataloader, verbose, epoch_id):
+        vae = self.model
+        vae.eval()
+        device = self.device
+        temperature = self.hyperparameter["temperature"]
+        total_vae_loss, total_c_loss, total_s_loss = 0.0, 0.0, 0.0
+        with torch.no_grad():
+            for X, label, _ in tqdm(
+                dataloader, disable=not verbose, desc=f"val-epoch {epoch_id}"
+            ):
+                X = X.to(device)
+                label = label.to(device)
+
+                X_hat, latent_params = vae(X)
+
+                _vae_loss = vae_loss(X_hat, X, **latent_params)
+                _ntxent_loss = nt_xent_loss(
+                    mu=latent_params["mu_c"],
+                    logvar=latent_params["logvar_c"],
+                    label=label,
+                    sim_fn=self.sim_fn,
+                    temperature=temperature,
+                )
+                _reverse_ntxent_loss = -nt_xent_loss(
+                    mu=latent_params["mu_s"],
+                    logvar=latent_params["logvar_s"],
+                    label=label,
+                    sim_fn=self.sim_fn,
+                    temperature=temperature,
+                )
+                total_vae_loss += _vae_loss
+                total_c_loss += _ntxent_loss
+                total_s_loss += _reverse_ntxent_loss
+        if verbose:
+            print(
+                "val_vae_loss={:.3f}, val_c_loss={:.3f}, val_s_loss={:.3f}".format(
+                    total_vae_loss / len(dataloader),
+                    total_c_loss / len(dataloader),
+                    total_s_loss / len(dataloader),
+                )
+            )
