@@ -76,8 +76,8 @@ def pairwise_jeffrey_sim(mu: torch.Tensor, logvar: torch.Tensor):
 
 def pairwise_bhattacharyya_coef(mu: torch.Tensor, logvar: torch.Tensor):
     var = logvar.exp()
-    # var_avg = 1  # 0.5 * (var[None, :, :] + var[:, None, :])  # pairwise avg
-    term1 = ((mu[None, :, :] - mu[:, None, :]) ** 2 / var).sum(dim=-1)
+    var_avg = 0.5 * (var[None, :, :] + var[:, None, :])  # pairwise avg
+    term1 = ((mu[None, :, :] - mu[:, None, :]) ** 2 / var_avg).sum(dim=-1)
 
     # det_var = var.prod(dim=-1)  # get det_sigma_1, det_sigma_2,...
     # term2 = torch.log(

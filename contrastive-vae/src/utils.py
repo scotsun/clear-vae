@@ -8,6 +8,8 @@ from torch.utils.data import Dataset
 from tqdm import tqdm
 from IPython import display
 
+from corruption_utils import corruptions
+
 
 class MNISTPairGenerator:
     def __init__(
@@ -82,6 +84,21 @@ class PairDataset(Dataset):
         img1, img2, content_label, style_label = self.__getitem__(idx)
         print(f"content label: {int(content_label)}, style label: {style_label}")
         display(transforms.ToPILImage()(img1), transforms.ToPILImage()(img2))
+
+
+def random_style_distribution(
+    styles: list = [
+        corruptions.identity,
+        corruptions.stripe,
+        corruptions.zigzag,
+        corruptions.canny_edges,
+    ],
+) -> dict:
+    probs = np.random.dirichlet([10] * len(styles))
+    output = dict()
+    for i, fn in enumerate(styles):
+        output[fn] = probs[i]
+    return output
 
 
 class CMNISTGenerator:
