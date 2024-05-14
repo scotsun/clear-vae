@@ -199,7 +199,7 @@ class SimCLRTrainer(Trainer):
                     sim_fn=self.sim_fn,
                     temperature=temperature,
                 )
-                _reverse_ntxent_loss = -nt_xent_loss(
+                _reverse_ntxent_loss = nt_xent_loss(
                     mu=latent_params["mu_s"],
                     logvar=latent_params["logvar_s"],
                     label=label,
@@ -210,7 +210,7 @@ class SimCLRTrainer(Trainer):
                 loss = (
                     _vae_loss
                     + alpha[0] * _ntxent_loss
-                    + alpha[1] * _reverse_ntxent_loss
+                    + alpha[1] * torch.exp(-_reverse_ntxent_loss)
                 )
 
                 loss.backward()
@@ -246,13 +246,14 @@ class SimCLRTrainer(Trainer):
                     sim_fn=self.sim_fn,
                     temperature=temperature,
                 )
-                _reverse_ntxent_loss = -nt_xent_loss(
+                _reverse_ntxent_loss = nt_xent_loss(
                     mu=latent_params["mu_s"],
                     logvar=latent_params["logvar_s"],
                     label=label,
                     sim_fn=self.sim_fn,
                     temperature=temperature,
                 )
+
                 total_vae_loss += _vae_loss
                 total_c_loss += _ntxent_loss
                 total_s_loss += _reverse_ntxent_loss
