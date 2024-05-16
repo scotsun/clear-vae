@@ -99,7 +99,8 @@ def logsumexp(x: Tensor, dim: int) -> Tensor:
     return s.masked_fill_(mask, 1).log() + m.masked_fill_(mask, -float("inf"))
 
 
-# NT-Xent Loss
+# Technically, we are using soft-nearest-neighbor loss (multiple pos pair version of nt-xent)
+# but due to SimCLR's popularity, we refer it as nt-xent loss
 def _nt_xent_loss(sim: torch.Tensor, pos_target: torch.Tensor, temperature: float):
     n = sim.shape[0]
     sim = sim.clone()

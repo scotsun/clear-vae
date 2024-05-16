@@ -182,6 +182,7 @@ class CDVAETrainer(Trainer):
         temperature = self.hyperparameter["temperature"]
         beta = self.hyperparameter["beta"]
         alpha = self.hyperparameter["alpha"]
+        label_flipping = self.hyperparameter["label_flipping"]
         with tqdm(dataloader, unit="batch", mininterval=0, disable=not verbose) as bar:
             bar.set_description(f"Epoch {epoch_id}")
             for X, label, _ in bar:
@@ -205,13 +206,14 @@ class CDVAETrainer(Trainer):
                     label=label,
                     sim_fn=self.sim_fn,
                     temperature=temperature,
-                    flip=True,
+                    flip=label_flipping,
                 )
 
+                if not label_flipping:
+                    _reverse_ntxent_loss = torch.exp(-_reverse_ntxent_loss)
                 loss = (
                     _vae_loss
                     + alpha[0] * _ntxent_loss
-                    # + alpha[1] * torch.exp(-_reverse_ntxent_loss)
                     + alpha[1] * _reverse_ntxent_loss
                 )
 
@@ -230,6 +232,7 @@ class CDVAETrainer(Trainer):
         device = self.device
         temperature = self.hyperparameter["temperature"]
         beta = self.hyperparameter["beta"]
+        label_flipping = self.hyperparameter["label_flipping"]
         total_vae_loss, total_c_loss, total_s_loss = 0.0, 0.0, 0.0
         with torch.no_grad():
             for X, label, _ in tqdm(
@@ -254,11 +257,15 @@ class CDVAETrainer(Trainer):
                     label=label,
                     sim_fn=self.sim_fn,
                     temperature=temperature,
+                    flip=label_flipping,
                 )
+                if not label_flipping:
+                    _reverse_ntxent_loss = torch.exp(-_reverse_ntxent_loss)
 
                 total_vae_loss += _vae_loss
                 total_c_loss += _ntxent_loss
                 total_s_loss += _reverse_ntxent_loss
+
         if verbose:
             print(
                 "val_vae_loss={:.3f}, val_c_loss={:.3f}, val_s_loss={:.3f}".format(
