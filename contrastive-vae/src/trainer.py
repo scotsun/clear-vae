@@ -5,7 +5,6 @@ from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from src.losses import vae_loss, contrastive_loss, nt_xent_loss, accurary
-from src.utils import flip_labels
 
 
 class Trainer:

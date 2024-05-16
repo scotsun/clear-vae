@@ -146,13 +146,3 @@ class CMNIST(Dataset):
     def display(self, idx):
         img, _, _ = self.__getitem__(idx)
         display(transforms.ToPILImage()(img))
-
-
-def flip_labels(batch_labels: torch.Tensor, num_classes: int, device):
-    flipped_label = torch.ones_like(batch_labels).to(device)
-    for i, label in enumerate(batch_labels):
-        new_label = torch.randint(0, num_classes, (1,)).to(device)
-        while new_label == label:
-            new_label = torch.randint(0, num_classes, (1,)).to(device)
-        flipped_label[i] = new_label
-    return flipped_label
