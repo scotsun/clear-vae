@@ -118,8 +118,12 @@ def nt_xent_loss(
     label: torch.Tensor,
     sim_fn: str,
     temperature: float,
+    flip: bool = False,
 ):
-    pos_target = (label[None, :] == label[:, None]).float()
+    if flip:
+        pos_target = (label[None, :] != label[:, None]).float()
+    else:
+        pos_target = (label[None, :] == label[:, None]).float()
     match sim_fn:
         case "cosine":
             sim = pairwise_cosine(mu)

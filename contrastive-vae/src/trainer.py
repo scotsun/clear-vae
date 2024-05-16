@@ -5,6 +5,7 @@ from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from src.losses import vae_loss, contrastive_loss, nt_xent_loss, accurary
+from src.utils import flip_labels
 
 
 class Trainer:
@@ -160,7 +161,7 @@ class SimpleCNNTrainer(Trainer):
             print("val_acc={:.3f}".format(total_acc / len(dataloader)))
 
 
-class SimCLRTrainer(Trainer):
+class CDVAETrainer(Trainer):
     def __init__(
         self,
         model: nn.Module,
@@ -205,12 +206,14 @@ class SimCLRTrainer(Trainer):
                     label=label,
                     sim_fn=self.sim_fn,
                     temperature=temperature,
+                    flip=True,
                 )
 
                 loss = (
                     _vae_loss
                     + alpha[0] * _ntxent_loss
-                    + alpha[1] * torch.exp(-_reverse_ntxent_loss)
+                    # + alpha[1] * torch.exp(-_reverse_ntxent_loss)
+                    + alpha[1] * _reverse_ntxent_loss
                 )
 
                 loss.backward()
