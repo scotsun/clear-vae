@@ -3,6 +3,7 @@
 import torch
 import torch.nn.functional as F
 from torch import Tensor, jit
+from sklearn.metrics import roc_auc_score
 
 
 def accurary(logit: torch.Tensor, y: torch.Tensor):
@@ -10,7 +11,17 @@ def accurary(logit: torch.Tensor, y: torch.Tensor):
     return (yh == y).float().mean()
 
 
-def vae_loss(x_reconstr, x, mu_c, mu_s, logvar_c, logvar_s, beta: float = 1.0):
+def auc(logit: torch.Tensor, y: torch.Tensor):
+    num_classes = y.max() + 1
+    ph = logit.softmax(dim=1).detach()
+    y_binarized = torch.eye(num_classes)[y]
+    auc_scores = dict()
+    for i in range(num_classes):
+        auc_scores[i] = round(roc_auc_score(y_binarized[:, i].cpu(), ph[:, i].cpu()), 3)
+    return auc_scores
+
+
+def vae_loss(x_reconstr, x, mu_c, mu_s, logvar_c, logvar_s):
     """
     VAE loss with separating factors.
     """
@@ -24,7 +35,7 @@ def vae_loss(x_reconstr, x, mu_c, mu_s, logvar_c, logvar_s, beta: float = 1.0):
     )
     kl_c = -0.5 * torch.mean(1 + logvar_c - mu_c.pow(2) - logvar_c.exp())
     kl_s = -0.5 * torch.mean(1 + logvar_s - mu_s.pow(2) - logvar_s.exp())
-    return reconstruction_loss + beta * (kl_c + kl_s)
+    return reconstruction_loss, kl_c, kl_s
 
 
 def divergence_fn(mu_b_c, mu_p_c, logvar_b_c, logvar_p_c, metric="mahalanobis"):

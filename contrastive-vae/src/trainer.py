@@ -1,10 +1,31 @@
 """Trainer class"""
+import math
+import numpy as np
 import torch
 import torch.nn as nn
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from src.losses import vae_loss, contrastive_loss, nt_xent_loss, accurary
+from src.losses import vae_loss, contrastive_loss, nt_xent_loss, auc
+
+
+class LogisticAnnealer:
+    def __init__(self, loc, scale, beta) -> None:
+        self.current_step = 0
+        self.loc = loc
+        self.scale = scale
+        self.beta = beta
+
+    def __call__(self, kl_loss) -> torch.Tensor:
+        return kl_loss * self.slope() * self.beta
+
+    def slope(self) -> float:
+        exponent = -(self.current_step - self.loc) / self.scale
+        return 1 / (1 + math.exp(exponent))
+
+    def step(self) -> None:
+        self.current_step += 1
+        return
 
 
 class Trainer:
@@ -140,24 +161,28 @@ class SimpleCNNTrainer(Trainer):
                 optimizer.step()
 
                 # update running stats
-                acc = accurary(logits, y_batch)
-                bar.set_postfix(loss=float(loss), acc=float(acc))
+                bar.set_postfix(loss=float(loss))
 
     def _valid(self, dataloader: DataLoader, verbose: bool, epoch_id: int):
         cnn = self.model
         device = self.device
         cnn.eval()
-        total_acc = 0
+
+        all_y = []
+        all_logits = []
         with torch.no_grad():
             for X_batch, y_batch, _ in tqdm(
                 dataloader, disable=not verbose, desc=f"val-epoch {epoch_id}"
             ):
-                X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+                X_batch = X_batch.to(device)
                 logits = cnn(X_batch)
-                acc = accurary(logits, y_batch)
-                total_acc += acc.item()
+                all_y.append(y_batch)
+                all_logits.append(logits)
+        all_y, all_logits = torch.cat(all_y), torch.cat(all_logits)
         if verbose:
-            print("val_acc={:.3f}".format(total_acc / len(dataloader)))
+            auc_score = auc(all_logits, all_y)
+            print("val_auc:", auc_score)
+            print(np.mean(list(auc_score.values())))
 
 
 class CDVAETrainer(Trainer):
@@ -173,14 +198,15 @@ class CDVAETrainer(Trainer):
         super().__init__(model, optimizer, verbose_period, device)
         self.sim_fn = sim_fn
         self.hyperparameter = hyperparameter
+        self.annealer = LogisticAnnealer(loc=5e2, scale=1e2, beta=0.5)
 
     def _train(self, dataloader: DataLoader, verbose: bool, epoch_id: int):
         vae = self.model
         vae.train()
         optimizer = self.optimizer
+        annealer = self.annealer
         device = self.device
         temperature = self.hyperparameter["temperature"]
-        beta = self.hyperparameter["beta"]
         alpha = self.hyperparameter["alpha"]
         label_flipping = self.hyperparameter["label_flipping"]
         with tqdm(dataloader, unit="batch", mininterval=0, disable=not verbose) as bar:
@@ -192,7 +218,10 @@ class CDVAETrainer(Trainer):
 
                 X_hat, latent_params = vae(X)
 
-                _vae_loss = vae_loss(X_hat, X, **latent_params, beta=beta)
+                _recontr_loss, _kl_c, _kl_s = vae_loss(X_hat, X, **latent_params)
+
+                _kl_c, _kl_s = annealer(_kl_c), annealer(_kl_s)
+
                 _ntxent_loss = nt_xent_loss(
                     mu=latent_params["mu_c"],
                     logvar=latent_params["logvar_c"],
@@ -212,15 +241,21 @@ class CDVAETrainer(Trainer):
                 if not label_flipping:
                     _reverse_ntxent_loss = torch.exp(-_reverse_ntxent_loss)
                 loss = (
-                    _vae_loss
+                    _recontr_loss
+                    + _kl_c
+                    + _kl_s
                     + alpha[0] * _ntxent_loss
                     + alpha[1] * _reverse_ntxent_loss
                 )
 
                 loss.backward()
                 optimizer.step()
+                annealer.step()
+
                 bar.set_postfix(
-                    vae_loss=float(_vae_loss),
+                    recontr_loss=float(_recontr_loss),
+                    kl_c=float(_kl_c),
+                    kl_s=float(_kl_s),
                     c_loss=float(_ntxent_loss),
                     s_loss=float(_reverse_ntxent_loss),
                 )
@@ -231,9 +266,14 @@ class CDVAETrainer(Trainer):
         vae.eval()
         device = self.device
         temperature = self.hyperparameter["temperature"]
-        beta = self.hyperparameter["beta"]
         label_flipping = self.hyperparameter["label_flipping"]
-        total_vae_loss, total_c_loss, total_s_loss = 0.0, 0.0, 0.0
+        total_recontr_loss, total_kl_c, total_kl_s, total_c_loss, total_s_loss = (
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        )
         with torch.no_grad():
             for X, label, _ in tqdm(
                 dataloader, disable=not verbose, desc=f"val-epoch {epoch_id}"
@@ -243,7 +283,7 @@ class CDVAETrainer(Trainer):
 
                 X_hat, latent_params = vae(X)
 
-                _vae_loss = vae_loss(X_hat, X, **latent_params, beta=beta)
+                _recontr_loss, _kl_c, _kl_s = vae_loss(X_hat, X, **latent_params)
                 _ntxent_loss = nt_xent_loss(
                     mu=latent_params["mu_c"],
                     logvar=latent_params["logvar_c"],
@@ -262,14 +302,18 @@ class CDVAETrainer(Trainer):
                 if not label_flipping:
                     _reverse_ntxent_loss = torch.exp(-_reverse_ntxent_loss)
 
-                total_vae_loss += _vae_loss
+                total_recontr_loss += _recontr_loss
+                total_kl_c += _kl_c
+                total_kl_s += _kl_s
                 total_c_loss += _ntxent_loss
                 total_s_loss += _reverse_ntxent_loss
 
         if verbose:
             print(
-                "val_vae_loss={:.3f}, val_c_loss={:.3f}, val_s_loss={:.3f}".format(
-                    total_vae_loss / len(dataloader),
+                "val_recontr_loss={:.3f}, val_kl_c={:.3f}, val_kl_s={:.3f}, val_c_loss={:.3f}, val_s_loss={:.3f}".format(
+                    total_recontr_loss / len(dataloader),
+                    total_kl_c / len(dataloader),
+                    total_kl_s / len(dataloader),
                     total_c_loss / len(dataloader),
                     total_s_loss / len(dataloader),
                 )
