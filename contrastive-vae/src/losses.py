@@ -3,7 +3,7 @@
 import torch
 import torch.nn.functional as F
 from torch import Tensor, jit
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import average_precision_score
 
 
 def accurary(logit: torch.Tensor, y: torch.Tensor):
@@ -17,7 +17,9 @@ def auc(logit: torch.Tensor, y: torch.Tensor):
     y_binarized = torch.eye(num_classes)[y]
     auc_scores = dict()
     for i in range(num_classes):
-        auc_scores[i] = round(roc_auc_score(y_binarized[:, i].cpu(), ph[:, i].cpu()), 3)
+        auc_scores[i] = round(
+            average_precision_score(y_binarized[:, i].cpu(), ph[:, i].cpu()), 3
+        )
     return auc_scores
 
 

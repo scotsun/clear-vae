@@ -17,11 +17,11 @@ class LogisticAnnealer:
         self.beta = beta
 
     def __call__(self, kl_loss) -> torch.Tensor:
-        return kl_loss * self.slope() * self.beta
+        return kl_loss * self.slope()
 
     def slope(self) -> float:
         exponent = -(self.current_step - self.loc) / self.scale
-        return 1 / (1 + math.exp(exponent))
+        return self.beta / (1 + math.exp(exponent))
 
     def step(self) -> None:
         self.current_step += 1
@@ -52,6 +52,9 @@ class Trainer:
             self._train(train_loader, verbose, epoch)
             if valid_loader is not None:
                 self._valid(valid_loader, verbose, epoch)
+
+    def evaluate(self, **kwarg):
+        pass
 
     def _train(self, **kwarg):
         pass
@@ -131,6 +134,70 @@ class CDTrainer(Trainer):
         return
 
 
+class DownstreamMLPTrainer(Trainer):
+    def __init__(
+        self,
+        vae: nn.Module,
+        model: nn.Module,
+        optimizer: Optimizer,
+        criterion: nn.Module,
+        verbose_period: int,
+        device: torch.device,
+    ) -> None:
+        super().__init__(model, optimizer, verbose_period, device)
+        self.criterion = criterion
+        self.vae = vae
+
+    def _train(self, dataloader: DataLoader, verbose: bool, epoch_id: int):
+        vae = self.vae
+        model = self.model
+        device = self.device
+        optimizer = self.optimizer
+        criterion = self.criterion
+        model.train()
+
+        with tqdm(dataloader, unit="batch", disable=not verbose) as bar:
+            bar.set_description(f"epoch {epoch_id}")
+            for X_batch, y_batch, _ in bar:
+                X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+                optimizer.zero_grad()
+                mu_c = vae.encode(X_batch)[0]
+                logits = model(mu_c)
+
+                loss = criterion(logits, y_batch)
+                loss.backward()
+                optimizer.step()
+
+                # update running stats
+                bar.set_postfix(loss=float(loss))
+
+    def _valid(self, dataloader: DataLoader, verbose: bool, epoch_id: int):
+        if verbose:
+            auc_score = self.evaluate(dataloader, verbose, epoch_id)
+            print("val_auc:", auc_score)
+            print(np.mean(list(auc_score.values())).round(3))
+
+    def evaluate(self, dataloader: DataLoader, verbose: bool, epoch_id: int):
+        vae = self.vae
+        model = self.model
+        device = self.device
+        model.eval()
+        all_y = []
+        all_logits = []
+        with torch.no_grad():
+            for X_batch, y_batch, _ in tqdm(
+                dataloader, disable=not verbose, desc=f"val-epoch {epoch_id}"
+            ):
+                X_batch = X_batch.to(device)
+                mu_c = vae.encode(X_batch)[0]
+                logits = model(mu_c)
+
+                all_y.append(y_batch)
+                all_logits.append(logits)
+        all_y, all_logits = torch.cat(all_y), torch.cat(all_logits)
+        return auc(all_logits, all_y)
+
+
 class SimpleCNNTrainer(Trainer):
     def __init__(
         self,
@@ -164,6 +231,12 @@ class SimpleCNNTrainer(Trainer):
                 bar.set_postfix(loss=float(loss))
 
     def _valid(self, dataloader: DataLoader, verbose: bool, epoch_id: int):
+        if verbose:
+            auc_score = self.evaluate(dataloader, verbose, epoch_id)
+            print("val_auc:", auc_score)
+            print(np.mean(list(auc_score.values())).round(3))
+
+    def evaluate(self, dataloader: DataLoader, verbose: bool, epoch_id: int):
         cnn = self.model
         device = self.device
         cnn.eval()
@@ -179,10 +252,7 @@ class SimpleCNNTrainer(Trainer):
                 all_y.append(y_batch)
                 all_logits.append(logits)
         all_y, all_logits = torch.cat(all_y), torch.cat(all_logits)
-        if verbose:
-            auc_score = auc(all_logits, all_y)
-            print("val_auc:", auc_score)
-            print(np.mean(list(auc_score.values())))
+        return auc(all_logits, all_y)
 
 
 class CDVAETrainer(Trainer):
@@ -198,7 +268,11 @@ class CDVAETrainer(Trainer):
         super().__init__(model, optimizer, verbose_period, device)
         self.sim_fn = sim_fn
         self.hyperparameter = hyperparameter
-        self.annealer = LogisticAnnealer(loc=5e2, scale=1e2, beta=0.5)
+        self.annealer = LogisticAnnealer(
+            loc=hyperparameter["loc"],
+            scale=hyperparameter["scale"],
+            beta=hyperparameter["beta"],
+        )
 
     def _train(self, dataloader: DataLoader, verbose: bool, epoch_id: int):
         vae = self.model
@@ -239,7 +313,7 @@ class CDVAETrainer(Trainer):
                 )
 
                 if not label_flipping:
-                    _reverse_ntxent_loss = torch.exp(-_reverse_ntxent_loss)
+                    _reverse_ntxent_loss = -_reverse_ntxent_loss
                 loss = (
                     _recontr_loss
                     + _kl_c
@@ -262,53 +336,53 @@ class CDVAETrainer(Trainer):
         return
 
     def _valid(self, dataloader, verbose, epoch_id):
-        vae = self.model
-        vae.eval()
-        device = self.device
-        temperature = self.hyperparameter["temperature"]
-        label_flipping = self.hyperparameter["label_flipping"]
-        total_recontr_loss, total_kl_c, total_kl_s, total_c_loss, total_s_loss = (
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-        )
-        with torch.no_grad():
-            for X, label, _ in tqdm(
-                dataloader, disable=not verbose, desc=f"val-epoch {epoch_id}"
-            ):
-                X = X.to(device)
-                label = label.to(device)
-
-                X_hat, latent_params = vae(X)
-
-                _recontr_loss, _kl_c, _kl_s = vae_loss(X_hat, X, **latent_params)
-                _ntxent_loss = nt_xent_loss(
-                    mu=latent_params["mu_c"],
-                    logvar=latent_params["logvar_c"],
-                    label=label,
-                    sim_fn=self.sim_fn,
-                    temperature=temperature,
-                )
-                _reverse_ntxent_loss = nt_xent_loss(
-                    mu=latent_params["mu_s"],
-                    logvar=latent_params["logvar_s"],
-                    label=label,
-                    sim_fn=self.sim_fn,
-                    temperature=temperature,
-                    flip=label_flipping,
-                )
-                if not label_flipping:
-                    _reverse_ntxent_loss = torch.exp(-_reverse_ntxent_loss)
-
-                total_recontr_loss += _recontr_loss
-                total_kl_c += _kl_c
-                total_kl_s += _kl_s
-                total_c_loss += _ntxent_loss
-                total_s_loss += _reverse_ntxent_loss
-
         if verbose:
+            vae = self.model
+            vae.eval()
+            device = self.device
+            temperature = self.hyperparameter["temperature"]
+            label_flipping = self.hyperparameter["label_flipping"]
+            total_recontr_loss, total_kl_c, total_kl_s, total_c_loss, total_s_loss = (
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+            )
+            with torch.no_grad():
+                for X, label, _ in tqdm(
+                    dataloader, disable=not verbose, desc=f"val-epoch {epoch_id}"
+                ):
+                    X = X.to(device)
+                    label = label.to(device)
+
+                    X_hat, latent_params = vae(X)
+
+                    _recontr_loss, _kl_c, _kl_s = vae_loss(X_hat, X, **latent_params)
+                    _ntxent_loss = nt_xent_loss(
+                        mu=latent_params["mu_c"],
+                        logvar=latent_params["logvar_c"],
+                        label=label,
+                        sim_fn=self.sim_fn,
+                        temperature=temperature,
+                    )
+                    _reverse_ntxent_loss = nt_xent_loss(
+                        mu=latent_params["mu_s"],
+                        logvar=latent_params["logvar_s"],
+                        label=label,
+                        sim_fn=self.sim_fn,
+                        temperature=temperature,
+                        flip=label_flipping,
+                    )
+                    if not label_flipping:
+                        _reverse_ntxent_loss = -_reverse_ntxent_loss
+
+                    total_recontr_loss += _recontr_loss
+                    total_kl_c += _kl_c
+                    total_kl_s += _kl_s
+                    total_c_loss += _ntxent_loss
+                    total_s_loss += _reverse_ntxent_loss
+
             print(
                 "val_recontr_loss={:.3f}, val_kl_c={:.3f}, val_kl_s={:.3f}, val_c_loss={:.3f}, val_s_loss={:.3f}".format(
                     total_recontr_loss / len(dataloader),
