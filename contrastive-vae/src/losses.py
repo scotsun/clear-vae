@@ -11,16 +11,16 @@ def accurary(logit: torch.Tensor, y: torch.Tensor):
     return (yh == y).float().mean()
 
 
-def auc(logit: torch.Tensor, y: torch.Tensor):
+def aupr(logit: torch.Tensor, y: torch.Tensor):
     num_classes = y.max() + 1
     ph = logit.softmax(dim=1).detach()
     y_binarized = torch.eye(num_classes)[y]
-    auc_scores = dict()
+    aupr_scores = dict()
     for i in range(num_classes):
-        auc_scores[i] = round(
+        aupr_scores[i] = round(
             average_precision_score(y_binarized[:, i].cpu(), ph[:, i].cpu()), 3
         )
-    return auc_scores
+    return aupr_scores
 
 
 def vae_loss(x_reconstr, x, mu_c, mu_s, logvar_c, logvar_s):

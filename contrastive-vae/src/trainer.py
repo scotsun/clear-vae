@@ -6,7 +6,7 @@ import torch.nn as nn
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from src.losses import vae_loss, contrastive_loss, nt_xent_loss, auc
+from src.losses import vae_loss, contrastive_loss, nt_xent_loss, aupr
 
 
 class LogisticAnnealer:
@@ -173,9 +173,9 @@ class DownstreamMLPTrainer(Trainer):
 
     def _valid(self, dataloader: DataLoader, verbose: bool, epoch_id: int):
         if verbose:
-            auc_score = self.evaluate(dataloader, verbose, epoch_id)
-            print("val_auc:", auc_score)
-            print(np.mean(list(auc_score.values())).round(3))
+            aupr_score = self.evaluate(dataloader, verbose, epoch_id)
+            print("val_auc:", aupr_score)
+            print(np.mean(list(aupr_score.values())).round(3))
 
     def evaluate(self, dataloader: DataLoader, verbose: bool, epoch_id: int):
         vae = self.vae
@@ -195,7 +195,7 @@ class DownstreamMLPTrainer(Trainer):
                 all_y.append(y_batch)
                 all_logits.append(logits)
         all_y, all_logits = torch.cat(all_y), torch.cat(all_logits)
-        return auc(all_logits, all_y)
+        return aupr(all_logits, all_y)
 
 
 class SimpleCNNTrainer(Trainer):
@@ -232,9 +232,9 @@ class SimpleCNNTrainer(Trainer):
 
     def _valid(self, dataloader: DataLoader, verbose: bool, epoch_id: int):
         if verbose:
-            auc_score = self.evaluate(dataloader, verbose, epoch_id)
-            print("val_auc:", auc_score)
-            print(np.mean(list(auc_score.values())).round(3))
+            aupr_score = self.evaluate(dataloader, verbose, epoch_id)
+            print("val_auc:", aupr_score)
+            print(np.mean(list(aupr_score.values())).round(3))
 
     def evaluate(self, dataloader: DataLoader, verbose: bool, epoch_id: int):
         cnn = self.model
@@ -252,7 +252,7 @@ class SimpleCNNTrainer(Trainer):
                 all_y.append(y_batch)
                 all_logits.append(logits)
         all_y, all_logits = torch.cat(all_y), torch.cat(all_logits)
-        return auc(all_logits, all_y)
+        return aupr(all_logits, all_y)
 
 
 class CDVAETrainer(Trainer):
