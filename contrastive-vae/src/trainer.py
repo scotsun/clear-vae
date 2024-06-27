@@ -158,7 +158,8 @@ class DownstreamMLPTrainer(Trainer):
 
         with tqdm(dataloader, unit="batch", disable=not verbose) as bar:
             bar.set_description(f"epoch {epoch_id}")
-            for X_batch, y_batch, _ in bar:
+            for batch in bar:
+                X_batch, y_batch = batch[0], batch[1].reshape(-1).long()
                 X_batch, y_batch = X_batch.to(device), y_batch.to(device)
                 optimizer.zero_grad()
                 mu_c = vae.encode(X_batch)[0]
@@ -187,9 +188,10 @@ class DownstreamMLPTrainer(Trainer):
         all_y = []
         all_logits = []
         with torch.no_grad():
-            for X_batch, y_batch, _ in tqdm(
+            for batch in tqdm(
                 dataloader, disable=not verbose, desc=f"val-epoch {epoch_id}"
             ):
+                X_batch, y_batch = batch[0], batch[1].reshape(-1)
                 X_batch = X_batch.to(device)
                 mu_c = vae.encode(X_batch)[0]
                 logits = model(mu_c)
@@ -221,7 +223,8 @@ class SimpleCNNTrainer(Trainer):
 
         with tqdm(dataloader, unit="batch", disable=not verbose) as bar:
             bar.set_description(f"epoch {epoch_id}")
-            for X_batch, y_batch, _ in bar:
+            for batch in bar:
+                X_batch, y_batch = batch[0], batch[1].reshape(-1).long()
                 X_batch, y_batch = X_batch.to(device), y_batch.to(device)
                 optimizer.zero_grad()
                 logits = cnn(X_batch)
@@ -248,9 +251,10 @@ class SimpleCNNTrainer(Trainer):
         all_y = []
         all_logits = []
         with torch.no_grad():
-            for X_batch, y_batch, _ in tqdm(
+            for batch in tqdm(
                 dataloader, disable=not verbose, desc=f"val-epoch {epoch_id}"
             ):
+                X_batch, y_batch = batch[0], batch[1].reshape(-1)
                 X_batch = X_batch.to(device)
                 logits = cnn(X_batch)
                 all_y.append(y_batch)
@@ -289,7 +293,8 @@ class CDVAETrainer(Trainer):
         label_flipping = self.hyperparameter["label_flipping"]
         with tqdm(dataloader, unit="batch", mininterval=0, disable=not verbose) as bar:
             bar.set_description(f"Epoch {epoch_id}")
-            for X, label, _ in bar:
+            for batch in bar:
+                X, label = batch[0], batch[1].reshape(-1).long()
                 optimizer.zero_grad()
                 X = X.to(device)
                 label = label.to(device)
@@ -358,9 +363,10 @@ class CDVAETrainer(Trainer):
             all_latent_c = []
             all_latent_s = []
             with torch.no_grad():
-                for X, label, _ in tqdm(
+                for batch in tqdm(
                     dataloader, disable=not verbose, desc=f"val-epoch {epoch_id}"
                 ):
+                    X, label = batch[0], batch[1].reshape(-1).long()
                     X = X.to(device)
                     label = label.to(device)
 
