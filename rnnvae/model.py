@@ -5,44 +5,6 @@ import torch.nn.functional as F
 PAD_IDX, UNK_IDX, BOS_IDX, EOS_IDX = 0, 1, 2, 3
 
 
-class PositionalEncoding(nn.Module):
-    def __init__(self, embedding_dim) -> None:
-        super().__init__()
-        self.embedding_dim = embedding_dim
-
-    def forward(self, input):
-        pass
-
-
-class TransformerVAE(nn.Module):
-    def __init__(
-        self,
-        vocab_size,
-        embedding_dim,
-        hidden_dim,
-        latent_dim,
-        n_head,
-        n_encoder_layers,
-        n_decoder_layers,
-    ) -> None:
-        super().__init__()
-        self.embedding = nn.Embedding(vocab_size, embedding_dim)
-        self.positional_encoding = PositionalEncoding(embedding_dim)
-
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model=embedding_dim, nhead=n_head, dim_feedforward=512, batch_first=True
-        )
-        self.encoder = nn.TransformerEncoder(encoder_layer, num_layers=n_encoder_layers)
-
-        decoder_layer = nn.TransformerDecoderLayer(
-            d_model=embedding_dim, nhead=n_head, dim_feedforward=512, batch_first=True
-        )
-        self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=n_decoder_layers)
-
-        # self.mem2mean = nn.Linear()
-        self.output2logits = nn.Linear(embedding_dim, vocab_size)
-
-
 class RVAE(nn.Module):
     def __init__(
         self,
@@ -112,7 +74,13 @@ class EncoderRNN(nn.Module):
         self.device = device
 
         self.embedding = embedding
-        self.gru = nn.GRU(embedding_size, hidden_size, num_layers, batch_first=True)
+        self.gru = nn.GRU(
+            embedding_size,
+            hidden_size,
+            num_layers,
+            batch_first=True,
+            bidirectional=True,
+        )
         self.dropout = nn.Dropout(dropout_p)
 
     def forward(self, input):
@@ -135,8 +103,14 @@ class DecoderRNN(nn.Module):
         self.device = device
 
         self.embedding = embedding
-        self.gru = nn.GRU(embedding_size, hidden_size, num_layers, batch_first=True)
-        self.out = nn.Linear(hidden_size, output_size)
+        self.gru = nn.GRU(
+            embedding_size,
+            hidden_size,
+            num_layers,
+            batch_first=True,
+            bidirectional=True,
+        )
+        self.out = nn.Linear(2 * hidden_size, output_size)
 
     def forward(self, encoder_outputs, encoder_hidden, target_tensor=None):
         batch_size = encoder_outputs.size(0)

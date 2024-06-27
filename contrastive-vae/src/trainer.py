@@ -6,7 +6,7 @@ import torch.nn as nn
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from src.losses import vae_loss, contrastive_loss, nt_xent_loss, auc
+from src.losses import vae_loss, contrastive_loss, nt_xent_loss, auc, mutual_info_gap
 
 
 class LogisticAnnealer:
@@ -353,6 +353,10 @@ class CDVAETrainer(Trainer):
                 0.0,
                 0.0,
             )
+
+            all_label = []
+            all_latent_c = []
+            all_latent_s = []
             with torch.no_grad():
                 for X, label, _ in tqdm(
                     dataloader, disable=not verbose, desc=f"val-epoch {epoch_id}"
@@ -387,6 +391,16 @@ class CDVAETrainer(Trainer):
                     total_c_loss += _ntxent_loss
                     total_s_loss += _reverse_ntxent_loss
 
+                    all_label.append(label)
+                    all_latent_c.append(latent_params["mu_c"])
+                    all_latent_s.append(latent_params["mu_s"])
+            all_label, all_latent_c, all_latent_s = (
+                torch.cat(all_label),
+                torch.cat(all_latent_c),
+                torch.cat(all_latent_s),
+            )
+            mig = mutual_info_gap(all_label, all_latent_c, all_latent_s)
+
             print(
                 "val_recontr_loss={:.3f}, val_kl_c={:.3f}, val_kl_s={:.3f}, val_c_loss={:.3f}, val_s_loss={:.3f}".format(
                     total_recontr_loss / len(dataloader),
@@ -396,3 +410,4 @@ class CDVAETrainer(Trainer):
                     total_s_loss / len(dataloader),
                 )
             )
+            print(f"gMIG: {round(mig, 3)}")

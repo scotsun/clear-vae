@@ -4,6 +4,16 @@ import torch
 import torch.nn.functional as F
 from torch import Tensor, jit
 from sklearn.metrics import average_precision_score, roc_auc_score
+from sklearn.feature_selection import mutual_info_classif
+
+
+def mutual_info_gap(label, latent_c, latent_s):
+    label, latent_c, latent_s = label.cpu(), latent_c.cpu(), latent_s.cpu()
+    p = torch.bincount(label) / len(label)
+    H = float(-(p * torch.log(p)).sum())
+    mi_c = mutual_info_classif(latent_c, label, discrete_features=False)
+    mi_s = mutual_info_classif(latent_s, label, discrete_features=False)
+    return (mi_c.mean() - mi_s.mean()) / H
 
 
 def accurary(logit: torch.Tensor, y: torch.Tensor):
