@@ -22,6 +22,19 @@ style_fns = [
 
 
 def get_data_splits(k: int, seed: int):
+    """
+    Generate data splits and style dictionaries for CKMNIST dataset
+
+    Parameters:
+        k (int): The number of styles to generate for each class
+        seed (int): The random seed for reproducibility
+
+    Returns:
+        style_dict (dict): A dictionary containing the style information for each class
+        ckmnist_train (CKMNIST): The training set of the CKMNIST dataset
+        ckmnist_valid (CKMNIST): The validation set of the CKMNIST dataset
+        ckmnist_test (CKMNIST): The test set of the CKMNIST dataset
+    """
     np.random.seed(seed)
     torch.manual_seed(seed)
     mnist = torchvision.datasets.MNIST("../data", train=True)
