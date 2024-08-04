@@ -161,6 +161,7 @@ class BahdanauAttention(nn.Module):
         self.Va = nn.Linear(hidden_size, 1)
 
     def forward(self, query, keys):
+        print(query.shape, keys.shape)
         scores = self.Va(torch.tanh(self.Wa(query) + self.Ua(keys)))
         scores = scores.squeeze(2).unsqueeze(1)
 

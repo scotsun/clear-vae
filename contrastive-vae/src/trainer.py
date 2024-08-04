@@ -301,9 +301,7 @@ class CDVAETrainer(Trainer):
 
                 X_hat, latent_params = vae(X)
 
-                _recontr_loss, _kl_c, _kl_s = vae_loss(X_hat, X, **latent_params)
-
-                _kl_c, _kl_s = annealer(_kl_c), annealer(_kl_s)
+                _reconstr_loss, _kl_c, _kl_s = vae_loss(X_hat, X, **latent_params)
 
                 _ntxent_loss = nt_xent_loss(
                     mu=latent_params["mu_c"],
@@ -324,9 +322,9 @@ class CDVAETrainer(Trainer):
                 if not label_flipping:
                     _reverse_ntxent_loss = -_reverse_ntxent_loss
                 loss = (
-                    _recontr_loss
-                    + _kl_c
-                    + _kl_s
+                    _reconstr_loss
+                    + annealer(_kl_c)
+                    + annealer(_kl_s)
                     + alpha[0] * _ntxent_loss
                     + alpha[1] * _reverse_ntxent_loss
                 )
@@ -336,7 +334,7 @@ class CDVAETrainer(Trainer):
                 annealer.step()
 
                 bar.set_postfix(
-                    recontr_loss=float(_recontr_loss),
+                    recontr_loss=float(_reconstr_loss),
                     kl_c=float(_kl_c),
                     kl_s=float(_kl_s),
                     c_loss=float(_ntxent_loss),
@@ -351,7 +349,7 @@ class CDVAETrainer(Trainer):
             device = self.device
             temperature = self.hyperparameter["temperature"]
             label_flipping = self.hyperparameter["label_flipping"]
-            total_recontr_loss, total_kl_c, total_kl_s, total_c_loss, total_s_loss = (
+            total_reconstr_loss, total_kl_c, total_kl_s, total_c_loss, total_s_loss = (
                 0.0,
                 0.0,
                 0.0,
@@ -372,7 +370,7 @@ class CDVAETrainer(Trainer):
 
                     X_hat, latent_params = vae(X)
 
-                    _recontr_loss, _kl_c, _kl_s = vae_loss(X_hat, X, **latent_params)
+                    _reconstr_loss, _kl_c, _kl_s = vae_loss(X_hat, X, **latent_params)
                     _ntxent_loss = nt_xent_loss(
                         mu=latent_params["mu_c"],
                         logvar=latent_params["logvar_c"],
@@ -391,7 +389,7 @@ class CDVAETrainer(Trainer):
                     if not label_flipping:
                         _reverse_ntxent_loss = -_reverse_ntxent_loss
 
-                    total_recontr_loss += _recontr_loss
+                    total_reconstr_loss += _reconstr_loss
                     total_kl_c += _kl_c
                     total_kl_s += _kl_s
                     total_c_loss += _ntxent_loss
@@ -409,7 +407,7 @@ class CDVAETrainer(Trainer):
 
             print(
                 "val_recontr_loss={:.3f}, val_kl_c={:.3f}, val_kl_s={:.3f}, val_c_loss={:.3f}, val_s_loss={:.3f}".format(
-                    total_recontr_loss / len(dataloader),
+                    total_reconstr_loss / len(dataloader),
                     total_kl_c / len(dataloader),
                     total_kl_s / len(dataloader),
                     total_c_loss / len(dataloader),

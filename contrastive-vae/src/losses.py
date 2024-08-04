@@ -13,7 +13,7 @@ def mutual_info_gap(label, latent_c, latent_s):
     H = float(-(p * torch.log(p)).sum())
     mi_c = mutual_info_classif(latent_c, label, discrete_features=False)
     mi_s = mutual_info_classif(latent_s, label, discrete_features=False)
-    return (mi_c.mean() - mi_s.mean()) / H
+    return (mi_c.max() - mi_s.max()) / H
 
 
 def accurary(logit: torch.Tensor, y: torch.Tensor):
@@ -40,14 +40,13 @@ def vae_loss(x_reconstr, x, mu_c, mu_s, logvar_c, logvar_s):
     """
     VAE loss with separating factors.
     """
-    dims = len(x.shape)
+    x_dims = len(x.shape)
     reconstruction_loss = (
-        F.mse_loss(
-            x_reconstr, x, reduction="none"
-        )  # shoud be mse but bce gives better result
-        .sum(dim=list(range(dims))[1:])
+        F.mse_loss(x_reconstr, x, reduction="none")
+        .sum(dim=list(range(1, x_dims)))
         .mean()
     )
+
     kl_c = -0.5 * torch.mean(1 + logvar_c - mu_c.pow(2) - logvar_c.exp())
     kl_s = -0.5 * torch.mean(1 + logvar_s - mu_s.pow(2) - logvar_s.exp())
     return reconstruction_loss, kl_c, kl_s
@@ -87,31 +86,17 @@ def pairwise_variance_adjusted_cosine(mu: torch.Tensor, logvar: torch.Tensor):
     return F.cosine_similarity(z[None, :, :], z[:, None, :], dim=-1)
 
 
-def pairwise_jeffrey_sim(mu: torch.Tensor, logvar: torch.Tensor):
+def pairwise_jeffrey_neg(mu: torch.Tensor, logvar: torch.Tensor):
     k = mu.shape[1]
     var = logvar.exp()
-    term1 = (var.prod(dim=-1)[None, :] / var.prod(dim=-1)[:, None]).log() - k
-    term2 = ((mu[None, :, :] - mu[:, None, :]) ** 2 / var).sum(dim=-1)
-    term3 = (var[None, :, :] / var[:, None, :]).sum(dim=-1)
+    term1 = logvar.sum(dim=-1)[:, None] - logvar.sum(dim=-1)[None, :] - k
+    term2 = ((mu[:, None, :] - mu[None, :, :]) ** 2 / var).sum(dim=-1)
+    term3 = (var[:, None, :] / var[None, :, :]).sum(dim=-1)
 
     pairwise_kl = 0.5 * (term1 + term2 + term3)
     pairwise_jeff = pairwise_kl + pairwise_kl.T
 
-    return torch.exp(-pairwise_jeff)
-
-
-def pairwise_bhattacharyya_coef(mu: torch.Tensor, logvar: torch.Tensor):
-    var = logvar.exp()
-    var_avg = 0.5 * (var[None, :, :] + var[:, None, :])  # pairwise avg
-    term1 = ((mu[None, :, :] - mu[:, None, :]) ** 2 / var_avg).sum(dim=-1)
-
-    # det_var = var.prod(dim=-1)  # get det_sigma_1, det_sigma_2,...
-    # term2 = torch.log(
-    #     var_avg.prod(dim=-1) / (det_var[None, :] * det_var[:, None]).sqrt()
-    # )
-    # bd = 1 / 8 * term1 + 1 / 2 * term2
-    bc = 2 * torch.exp(-term1) - 1
-    return bc
+    return -pairwise_jeff
 
 
 @jit.script
@@ -156,10 +141,8 @@ def nt_xent_loss(
             sim = pairwise_cosine(mu)
         case "cosine-var-adjust":
             sim = pairwise_variance_adjusted_cosine(mu, logvar)
-        case "bhattacharyya-coef":
-            sim = pairwise_bhattacharyya_coef(mu, logvar)
         case "jeffrey":
-            sim = pairwise_jeffrey_sim(mu, logvar)
+            sim = pairwise_jeffrey_neg(mu, logvar)
         case _:
             raise ValueError("unimplemented similarity measure.")
     losses = _nt_xent_loss(sim, pos_target, temperature)

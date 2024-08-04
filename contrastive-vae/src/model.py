@@ -83,7 +83,7 @@ class VAE(nn.Module):
         """
         z_c = self.sample(mu_c, logvar_c)
         z_s = self.sample(mu_s, logvar_s)
-        z = torch.cat([z_c, z_s], dim=1)
+        z = torch.cat([z_c, z_s], dim=-1)
         xhat = self.decode(z)
         if explicit:
             return xhat, z
