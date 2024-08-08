@@ -62,20 +62,6 @@ class VAE(nn.Module):
             nn.BatchNorm2d(in_channel),
             nn.Sigmoid(),
         )
-        self.proj_head_c = nn.Sequential(
-            nn.Linear(total_z_dim, 128),
-            nn.ReLU(),
-            nn.Linear(128, 128),
-            nn.ReLU(),
-            nn.Linear(128, 8),
-        )
-        self.proj_head_s = nn.Sequential(
-            nn.Linear(total_z_dim, 128),
-            nn.ReLU(),
-            nn.Linear(128, 128),
-            nn.ReLU(),
-            nn.Linear(128, 8),
-        )
 
     def encode(self, x):
         h = self.encoder(x)
@@ -112,18 +98,12 @@ class VAE(nn.Module):
             "mu_s": mu_s,
             "logvar_s": logvar_s,
         }
-        proj_param = {
-            "mu_c": self.proj_head_c(torch.cat([mu_c, logvar_c], dim=-1)),
-            "logvar_c": logvar_c,
-            "mu_s": self.proj_head_s(torch.cat([mu_s, logvar_s], dim=-1)),
-            "logvar_s": logvar_s,
-        }
         if explicit:
             xhat, z = self.generate(mu_c, logvar_c, mu_s, logvar_s, True)
-            return xhat, proj_param, latent_param, z
+            return xhat, latent_param, z
         else:
             xhat = self.generate(mu_c, logvar_c, mu_s, logvar_s, False)
-            return xhat, proj_param, latent_param
+            return xhat, latent_param
 
 
 def interpolate_latent(latent1, latent2, num_steps, device):

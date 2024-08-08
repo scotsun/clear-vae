@@ -79,23 +79,30 @@ def experiment(k, seed):
 
     # vae+mlp pipeline
     vae = VAE(total_z_dim=32).to(device)
-    optimizer = torch.optim.Adam(vae.parameters(), lr=5e-4)
+    optimizer = torch.optim.Adam(vae.parameters(), lr=1e-3)
     trainer = CDVAETrainer(
         vae,
         optimizer,
         sim_fn="cosine",
         hyperparameter={
+<<<<<<< HEAD
             "temperature": TAU,
             "beta": 1,
             "loc": 0,
             "scale": 1,
+=======
+            "temperature": 0.1,
+            "beta": 0.5,
+            "loc": 5e3,
+            "scale": 1e3,
+>>>>>>> parent of 9c29ca9 (update)
             "alpha": [50, 50],
             "label_flipping": True,
         },
         verbose_period=5,
         device=device,
     )
-    trainer.fit(51, train_loader, valid_loader)
+    trainer.fit(26, train_loader, valid_loader)
     vae.eval()
     for p in vae.parameters():
         p.requires_grad = False
@@ -141,10 +148,8 @@ def experiment(k, seed):
 
 
 def main():
-    seeds = [35, 724, 474]
-    for i, k in enumerate(range(3, len(style_fns))):
-        # experiment(k=k, seed=int(np.random.randint(0, 1000)))
-        experiment(k=k, seed=seeds[i])
+    for k in range(1, len(style_fns)):
+        experiment(k=k, seed=int(np.random.randint(0, 1000)))
 
 
 if __name__ == "__main__":

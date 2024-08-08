@@ -40,13 +40,14 @@ def vae_loss(x_reconstr, x, mu_c, mu_s, logvar_c, logvar_s):
     """
     VAE loss with separating factors.
     """
-    x_dims = len(x.shape)
+    dims = len(x.shape)
     reconstruction_loss = (
-        F.mse_loss(x_reconstr, x, reduction="none")
-        .sum(dim=list(range(1, x_dims)))
+        F.mse_loss(
+            x_reconstr, x, reduction="none"
+        )  # shoud be mse but bce gives better result
+        .sum(dim=list(range(dims))[1:])
         .mean()
     )
-
     kl_c = -0.5 * torch.mean(1 + logvar_c - mu_c.pow(2) - logvar_c.exp())
     kl_s = -0.5 * torch.mean(1 + logvar_s - mu_s.pow(2) - logvar_s.exp())
     return reconstruction_loss, kl_c, kl_s
@@ -89,9 +90,9 @@ def pairwise_variance_adjusted_cosine(mu: torch.Tensor, logvar: torch.Tensor):
 def pairwise_jeffrey_div(mu: torch.Tensor, logvar: torch.Tensor):
     k = mu.shape[1]
     var = logvar.exp()
-    term1 = logvar.sum(dim=-1)[:, None] - logvar.sum(dim=-1)[None, :] - k
-    term2 = ((mu[:, None, :] - mu[None, :, :]) ** 2 / var).sum(dim=-1)
-    term3 = (var[:, None, :] / var[None, :, :]).sum(dim=-1)
+    term1 = (var.prod(dim=-1)[None, :] / var.prod(dim=-1)[:, None]).log() - k
+    term2 = ((mu[None, :, :] - mu[:, None, :]) ** 2 / var).sum(dim=-1)
+    term3 = (var[None, :, :] / var[:, None, :]).sum(dim=-1)
 
     pairwise_kl = 0.5 * (term1 + term2 + term3)
     pairwise_jeff = 0.5 * (pairwise_kl + pairwise_kl.T)
