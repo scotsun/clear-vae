@@ -87,7 +87,7 @@ def pairwise_variance_adjusted_cosine(mu: torch.Tensor, logvar: torch.Tensor):
     return F.cosine_similarity(z[None, :, :], z[:, None, :], dim=-1)
 
 
-def pairwise_jeffrey_sim(mu: torch.Tensor, logvar: torch.Tensor):
+def pairwise_jeffrey_div(mu: torch.Tensor, logvar: torch.Tensor):
     k = mu.shape[1]
     var = logvar.exp()
     term1 = (var.prod(dim=-1)[None, :] / var.prod(dim=-1)[:, None]).log() - k
@@ -95,23 +95,9 @@ def pairwise_jeffrey_sim(mu: torch.Tensor, logvar: torch.Tensor):
     term3 = (var[None, :, :] / var[:, None, :]).sum(dim=-1)
 
     pairwise_kl = 0.5 * (term1 + term2 + term3)
-    pairwise_jeff = pairwise_kl + pairwise_kl.T
+    pairwise_jeff = 0.5 * (pairwise_kl + pairwise_kl.T)
 
-    return torch.exp(-pairwise_jeff)
-
-
-def pairwise_bhattacharyya_coef(mu: torch.Tensor, logvar: torch.Tensor):
-    var = logvar.exp()
-    var_avg = 0.5 * (var[None, :, :] + var[:, None, :])  # pairwise avg
-    term1 = ((mu[None, :, :] - mu[:, None, :]) ** 2 / var_avg).sum(dim=-1)
-
-    # det_var = var.prod(dim=-1)  # get det_sigma_1, det_sigma_2,...
-    # term2 = torch.log(
-    #     var_avg.prod(dim=-1) / (det_var[None, :] * det_var[:, None]).sqrt()
-    # )
-    # bd = 1 / 8 * term1 + 1 / 2 * term2
-    bc = 2 * torch.exp(-term1) - 1
-    return bc
+    return pairwise_jeff
 
 
 @jit.script
@@ -156,10 +142,8 @@ def nt_xent_loss(
             sim = pairwise_cosine(mu)
         case "cosine-var-adjust":
             sim = pairwise_variance_adjusted_cosine(mu, logvar)
-        case "bhattacharyya-coef":
-            sim = pairwise_bhattacharyya_coef(mu, logvar)
         case "jeffrey":
-            sim = pairwise_jeffrey_sim(mu, logvar)
+            sim = pairwise_jeffrey_div(mu, logvar)
         case _:
             raise ValueError("unimplemented similarity measure.")
     losses = _nt_xent_loss(sim, pos_target, temperature)

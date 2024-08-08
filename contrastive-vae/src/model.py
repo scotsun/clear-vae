@@ -5,10 +5,10 @@ import torch.nn as nn
 
 
 class SimpleCNNClassifier(nn.Module):
-    def __init__(self, n_class: int = 10) -> None:
+    def __init__(self, n_class: int = 10, in_channel: int = 1) -> None:
         super().__init__()
         self.net = nn.Sequential(
-            nn.Conv2d(1, 32, 3, 2, 1),
+            nn.Conv2d(in_channel, 32, 3, 2, 1),
             nn.BatchNorm2d(32),
             nn.ReLU(),
             nn.Conv2d(32, 64, 3, 2, 1),
@@ -26,12 +26,12 @@ class SimpleCNNClassifier(nn.Module):
 
 
 class VAE(nn.Module):
-    def __init__(self, total_z_dim) -> None:
+    def __init__(self, total_z_dim, in_channel: int = 1) -> None:
         super().__init__()
         z_dim = int(total_z_dim / 2)
         # encoder
         self.encoder = nn.Sequential(
-            nn.Conv2d(1, 32, 3, 2, 1),
+            nn.Conv2d(in_channel, 32, 3, 2, 1),
             nn.BatchNorm2d(32),
             nn.ReLU(),
             nn.Conv2d(32, 64, 3, 2, 1),
@@ -58,8 +58,8 @@ class VAE(nn.Module):
             nn.ConvTranspose2d(64, 32, 3, 2, 1, 1),
             nn.BatchNorm2d(32),
             nn.ReLU(),
-            nn.ConvTranspose2d(32, 1, 3, 2, 1, 1),
-            nn.BatchNorm2d(1),
+            nn.ConvTranspose2d(32, in_channel, 3, 2, 1, 1),
+            nn.BatchNorm2d(in_channel),
             nn.Sigmoid(),
         )
 
@@ -83,7 +83,7 @@ class VAE(nn.Module):
         """
         z_c = self.sample(mu_c, logvar_c)
         z_s = self.sample(mu_s, logvar_s)
-        z = torch.cat([z_c, z_s], dim=1)
+        z = torch.cat([z_c, z_s], dim=-1)
         xhat = self.decode(z)
         if explicit:
             return xhat, z

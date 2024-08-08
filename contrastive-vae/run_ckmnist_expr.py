@@ -9,6 +9,8 @@ from corruption_utils import corruptions
 from src.model import SimpleCNNClassifier, VAE
 from src.trainer import SimpleCNNTrainer, CDVAETrainer, DownstreamMLPTrainer
 
+TAU = 0.05
+
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
 style_fns = [
@@ -83,10 +85,17 @@ def experiment(k, seed):
         optimizer,
         sim_fn="cosine",
         hyperparameter={
+<<<<<<< HEAD
+            "temperature": TAU,
+            "beta": 1,
+            "loc": 0,
+            "scale": 1,
+=======
             "temperature": 0.1,
             "beta": 0.5,
             "loc": 5e3,
             "scale": 1e3,
+>>>>>>> parent of 9c29ca9 (update)
             "alpha": [50, 50],
             "label_flipping": True,
         },
