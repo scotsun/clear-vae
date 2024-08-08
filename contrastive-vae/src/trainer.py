@@ -299,28 +299,29 @@ class CDVAETrainer(Trainer):
                 X = X.to(device)
                 label = label.to(device)
 
-                X_hat, latent_params = vae(X)
+                X_hat, proj_params, latent_params = vae(X)
 
                 _reconstr_loss, _kl_c, _kl_s = vae_loss(X_hat, X, **latent_params)
 
                 _ntxent_loss = nt_xent_loss(
-                    mu=latent_params["mu_c"],
-                    logvar=latent_params["logvar_c"],
+                    mu=proj_params["mu_c"],
+                    logvar=proj_params["logvar_c"],
                     label=label,
                     sim_fn=self.sim_fn,
                     temperature=temperature,
+                    flip=not label_flipping,
                 )
                 _reverse_ntxent_loss = nt_xent_loss(
-                    mu=latent_params["mu_s"],
-                    logvar=latent_params["logvar_s"],
+                    mu=proj_params["mu_s"],
+                    logvar=proj_params["logvar_s"],
                     label=label,
                     sim_fn=self.sim_fn,
                     temperature=temperature,
                     flip=label_flipping,
                 )
 
-                if not label_flipping:
-                    _reverse_ntxent_loss = -_reverse_ntxent_loss
+                # if not label_flipping:
+                #     _reverse_ntxent_loss = -_reverse_ntxent_loss
                 loss = (
                     _reconstr_loss
                     + annealer(_kl_c)
@@ -368,19 +369,19 @@ class CDVAETrainer(Trainer):
                     X = X.to(device)
                     label = label.to(device)
 
-                    X_hat, latent_params = vae(X)
+                    X_hat, proj_params, latent_params = vae(X)
 
                     _reconstr_loss, _kl_c, _kl_s = vae_loss(X_hat, X, **latent_params)
                     _ntxent_loss = nt_xent_loss(
-                        mu=latent_params["mu_c"],
-                        logvar=latent_params["logvar_c"],
+                        mu=proj_params["mu_c"],
+                        logvar=proj_params["logvar_c"],
                         label=label,
                         sim_fn=self.sim_fn,
                         temperature=temperature,
                     )
                     _reverse_ntxent_loss = nt_xent_loss(
-                        mu=latent_params["mu_s"],
-                        logvar=latent_params["logvar_s"],
+                        mu=proj_params["mu_s"],
+                        logvar=proj_params["logvar_s"],
                         label=label,
                         sim_fn=self.sim_fn,
                         temperature=temperature,

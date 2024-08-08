@@ -5,10 +5,10 @@ import torch.nn as nn
 
 
 class SimpleCNNClassifier(nn.Module):
-    def __init__(self, n_class: int = 10) -> None:
+    def __init__(self, n_class: int = 10, in_channel: int = 1) -> None:
         super().__init__()
         self.net = nn.Sequential(
-            nn.Conv2d(1, 32, 3, 2, 1),
+            nn.Conv2d(in_channel, 32, 3, 2, 1),
             nn.BatchNorm2d(32),
             nn.ReLU(),
             nn.Conv2d(32, 64, 3, 2, 1),
@@ -26,12 +26,12 @@ class SimpleCNNClassifier(nn.Module):
 
 
 class VAE(nn.Module):
-    def __init__(self, total_z_dim) -> None:
+    def __init__(self, total_z_dim, in_channel: int = 1) -> None:
         super().__init__()
         z_dim = int(total_z_dim / 2)
         # encoder
         self.encoder = nn.Sequential(
-            nn.Conv2d(1, 32, 3, 2, 1),
+            nn.Conv2d(in_channel, 32, 3, 2, 1),
             nn.BatchNorm2d(32),
             nn.ReLU(),
             nn.Conv2d(32, 64, 3, 2, 1),
@@ -58,9 +58,15 @@ class VAE(nn.Module):
             nn.ConvTranspose2d(64, 32, 3, 2, 1, 1),
             nn.BatchNorm2d(32),
             nn.ReLU(),
-            nn.ConvTranspose2d(32, 1, 3, 2, 1, 1),
-            nn.BatchNorm2d(1),
+            nn.ConvTranspose2d(32, in_channel, 3, 2, 1, 1),
+            nn.BatchNorm2d(in_channel),
             nn.Sigmoid(),
+        )
+        self.proj_head_c = nn.Sequential(
+            nn.Linear(z_dim, 32), nn.ReLU(), nn.Linear(32, 32)
+        )
+        self.proj_head_s = nn.Sequential(
+            nn.Linear(z_dim, 32), nn.ReLU(), nn.Linear(32, 32)
         )
 
     def encode(self, x):
@@ -98,12 +104,18 @@ class VAE(nn.Module):
             "mu_s": mu_s,
             "logvar_s": logvar_s,
         }
+        proj_param = {
+            "mu_c": self.proj_head_c(mu_c),
+            "logvar_c": logvar_c,
+            "mu_s": self.proj_head_s(mu_s),
+            "logvar_s": logvar_s,
+        }
         if explicit:
             xhat, z = self.generate(mu_c, logvar_c, mu_s, logvar_s, True)
-            return xhat, latent_param, z
+            return xhat, proj_param, latent_param, z
         else:
             xhat = self.generate(mu_c, logvar_c, mu_s, logvar_s, False)
-            return xhat, latent_param
+            return xhat, proj_param, latent_param
 
 
 def interpolate_latent(latent1, latent2, num_steps, device):

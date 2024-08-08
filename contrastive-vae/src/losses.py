@@ -13,7 +13,7 @@ def mutual_info_gap(label, latent_c, latent_s):
     H = float(-(p * torch.log(p)).sum())
     mi_c = mutual_info_classif(latent_c, label, discrete_features=False)
     mi_s = mutual_info_classif(latent_s, label, discrete_features=False)
-    return (mi_c.max() - mi_s.max()) / H
+    return (mi_c.mean() - mi_s.mean()) / H
 
 
 def accurary(logit: torch.Tensor, y: torch.Tensor):
@@ -86,7 +86,7 @@ def pairwise_variance_adjusted_cosine(mu: torch.Tensor, logvar: torch.Tensor):
     return F.cosine_similarity(z[None, :, :], z[:, None, :], dim=-1)
 
 
-def pairwise_jeffrey_neg(mu: torch.Tensor, logvar: torch.Tensor):
+def pairwise_jeffrey_div(mu: torch.Tensor, logvar: torch.Tensor):
     k = mu.shape[1]
     var = logvar.exp()
     term1 = logvar.sum(dim=-1)[:, None] - logvar.sum(dim=-1)[None, :] - k
@@ -94,9 +94,9 @@ def pairwise_jeffrey_neg(mu: torch.Tensor, logvar: torch.Tensor):
     term3 = (var[:, None, :] / var[None, :, :]).sum(dim=-1)
 
     pairwise_kl = 0.5 * (term1 + term2 + term3)
-    pairwise_jeff = pairwise_kl + pairwise_kl.T
+    pairwise_jeff = 0.5 * (pairwise_kl + pairwise_kl.T)
 
-    return -pairwise_jeff
+    return pairwise_jeff
 
 
 @jit.script
@@ -142,7 +142,7 @@ def nt_xent_loss(
         case "cosine-var-adjust":
             sim = pairwise_variance_adjusted_cosine(mu, logvar)
         case "jeffrey":
-            sim = pairwise_jeffrey_neg(mu, logvar)
+            sim = pairwise_jeffrey_div(mu, logvar)
         case _:
             raise ValueError("unimplemented similarity measure.")
     losses = _nt_xent_loss(sim, pos_target, temperature)
