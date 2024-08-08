@@ -63,10 +63,18 @@ class VAE(nn.Module):
             nn.Sigmoid(),
         )
         self.proj_head_c = nn.Sequential(
-            nn.Linear(z_dim, 32), nn.ReLU(), nn.Linear(32, 32)
+            nn.Linear(total_z_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, 128),
+            nn.ReLU(),
+            nn.Linear(128, 8),
         )
         self.proj_head_s = nn.Sequential(
-            nn.Linear(z_dim, 32), nn.ReLU(), nn.Linear(32, 32)
+            nn.Linear(total_z_dim, 128),
+            nn.ReLU(),
+            nn.Linear(128, 128),
+            nn.ReLU(),
+            nn.Linear(128, 8),
         )
 
     def encode(self, x):
@@ -105,9 +113,9 @@ class VAE(nn.Module):
             "logvar_s": logvar_s,
         }
         proj_param = {
-            "mu_c": self.proj_head_c(mu_c),
+            "mu_c": self.proj_head_c(torch.cat([mu_c, logvar_c], dim=-1)),
             "logvar_c": logvar_c,
-            "mu_s": self.proj_head_s(mu_s),
+            "mu_s": self.proj_head_s(torch.cat([mu_s, logvar_s], dim=-1)),
             "logvar_s": logvar_s,
         }
         if explicit:

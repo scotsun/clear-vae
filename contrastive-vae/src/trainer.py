@@ -309,7 +309,6 @@ class CDVAETrainer(Trainer):
                     label=label,
                     sim_fn=self.sim_fn,
                     temperature=temperature,
-                    flip=not label_flipping,
                 )
                 _reverse_ntxent_loss = nt_xent_loss(
                     mu=proj_params["mu_s"],
@@ -320,8 +319,8 @@ class CDVAETrainer(Trainer):
                     flip=label_flipping,
                 )
 
-                # if not label_flipping:
-                #     _reverse_ntxent_loss = -_reverse_ntxent_loss
+                if not label_flipping:
+                    _reverse_ntxent_loss = -_reverse_ntxent_loss
                 loss = (
                     _reconstr_loss
                     + annealer(_kl_c)
