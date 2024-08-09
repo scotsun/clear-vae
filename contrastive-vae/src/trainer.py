@@ -6,7 +6,14 @@ import torch.nn as nn
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from src.losses import vae_loss, contrastive_loss, nt_xent_loss, auc, mutual_info_gap
+from src.losses import (
+    vae_loss,
+    contrastive_loss,
+    nt_xent_loss,
+    auc,
+    accurary,
+    mutual_info_gap,
+)
 
 
 class LogisticAnnealer:
@@ -173,17 +180,19 @@ class DownstreamMLPTrainer(Trainer):
                 loss = criterion(logits, y_batch)
                 loss.backward()
                 optimizer.step()
-
                 # update running stats
                 bar.set_postfix(loss=float(loss))
 
     def _valid(self, dataloader: DataLoader, verbose: bool, epoch_id: int):
         if verbose:
-            aupr_scores, auroc_scores = self.evaluate(dataloader, verbose, epoch_id)
+            (aupr_scores, auroc_scores), acc = self.evaluate(
+                dataloader, verbose, epoch_id
+            )
             print("val_aupr:", aupr_scores)
             print(np.mean(list(aupr_scores.values())).round(3))
             print("val_auroc:", auroc_scores)
             print(np.mean(list(auroc_scores.values())).round(3))
+            print("val_acc:", acc.numpy().round(3))
 
     def evaluate(self, dataloader: DataLoader, verbose: bool, epoch_id: int):
         vae = self.vae
@@ -204,7 +213,7 @@ class DownstreamMLPTrainer(Trainer):
                 all_y.append(y_batch)
                 all_logits.append(logits)
         all_y, all_logits = torch.cat(all_y), torch.cat(all_logits)
-        return auc(all_logits, all_y)
+        return auc(all_logits, all_y), accurary(all_logits, all_y)
 
 
 class SimpleCNNTrainer(Trainer):
@@ -245,11 +254,14 @@ class SimpleCNNTrainer(Trainer):
 
     def _valid(self, dataloader: DataLoader, verbose: bool, epoch_id: int):
         if verbose:
-            aupr_scores, auroc_scores = self.evaluate(dataloader, verbose, epoch_id)
+            (aupr_scores, auroc_scores), acc = self.evaluate(
+                dataloader, verbose, epoch_id
+            )
             print("val_aupr:", aupr_scores)
             print(np.mean(list(aupr_scores.values())).round(3))
             print("val_auroc:", auroc_scores)
             print(np.mean(list(auroc_scores.values())).round(3))
+            print("val_acc:", acc.numpy().round(3))
 
     def evaluate(self, dataloader: DataLoader, verbose: bool, epoch_id: int):
         cnn = self.model
@@ -268,7 +280,7 @@ class SimpleCNNTrainer(Trainer):
                 all_y.append(y_batch)
                 all_logits.append(logits)
         all_y, all_logits = torch.cat(all_y), torch.cat(all_logits)
-        return auc(all_logits, all_y)
+        return auc(all_logits, all_y), accurary(all_logits, all_y)
 
 
 class CDVAETrainer(Trainer):

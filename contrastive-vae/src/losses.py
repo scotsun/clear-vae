@@ -17,8 +17,8 @@ def mutual_info_gap(label, latent_c, latent_s):
 
 
 def accurary(logit: torch.Tensor, y: torch.Tensor):
-    yh = logit.argmax(dim=1)
-    return (yh == y).float().mean()
+    yh = logit.argmax(dim=1).cpu()
+    return (yh.view(-1) == y.view(-1)).float().mean()
 
 
 def auc(logit: torch.Tensor, y: torch.Tensor):
