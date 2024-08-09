@@ -35,11 +35,13 @@ class Trainer:
         optimizer: Optimizer,
         verbose_period: int,
         device: torch.device,
+        transform=None,
     ) -> None:
         self.model = model
         self.optimizer = optimizer
         self.verbose_period = verbose_period
         self.device = device
+        self.transform = transform
 
     def fit(
         self,
@@ -143,8 +145,9 @@ class DownstreamMLPTrainer(Trainer):
         criterion: nn.Module,
         verbose_period: int,
         device: torch.device,
+        transform=None,
     ) -> None:
-        super().__init__(model, optimizer, verbose_period, device)
+        super().__init__(model, optimizer, verbose_period, device, transform)
         self.criterion = criterion
         self.vae = vae
 
@@ -161,6 +164,8 @@ class DownstreamMLPTrainer(Trainer):
             for batch in bar:
                 X_batch, y_batch = batch[0], batch[1].reshape(-1).long()
                 X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+                if self.transform:
+                    X_batch = self.transform(X_batch)
                 optimizer.zero_grad()
                 mu_c = vae.encode(X_batch)[0]
                 logits = model(mu_c)
@@ -210,8 +215,9 @@ class SimpleCNNTrainer(Trainer):
         criterion: nn.Module,
         verbose_period: int,
         device: torch.device,
+        transform=None,
     ) -> None:
-        super().__init__(model, optimizer, verbose_period, device)
+        super().__init__(model, optimizer, verbose_period, device, transform)
         self.criterion = criterion
 
     def _train(self, dataloader: DataLoader, verbose: bool, epoch_id: int):
@@ -226,6 +232,8 @@ class SimpleCNNTrainer(Trainer):
             for batch in bar:
                 X_batch, y_batch = batch[0], batch[1].reshape(-1).long()
                 X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+                if self.transform:
+                    X_batch = self.transform(X_batch)
                 optimizer.zero_grad()
                 logits = cnn(X_batch)
                 loss = criterion(logits, y_batch)
@@ -272,8 +280,9 @@ class CDVAETrainer(Trainer):
         hyperparameter: dict[str, float],
         verbose_period: int,
         device: torch.device,
+        transform=None,
     ) -> None:
-        super().__init__(model, optimizer, verbose_period, device)
+        super().__init__(model, optimizer, verbose_period, device, transform)
         self.sim_fn = sim_fn
         self.hyperparameter = hyperparameter
         self.annealer = LogisticAnnealer(
@@ -295,10 +304,10 @@ class CDVAETrainer(Trainer):
             bar.set_description(f"Epoch {epoch_id}")
             for batch in bar:
                 X, label = batch[0], batch[1].reshape(-1).long()
+                X, label = X.to(device), label.to(device)
+                if self.transform:
+                    X = self.transform(X)
                 optimizer.zero_grad()
-                X = X.to(device)
-                label = label.to(device)
-
                 X_hat, latent_params = vae(X)
 
                 _recontr_loss, _kl_c, _kl_s = vae_loss(X_hat, X, **latent_params)
@@ -367,8 +376,7 @@ class CDVAETrainer(Trainer):
                     dataloader, disable=not verbose, desc=f"val-epoch {epoch_id}"
                 ):
                     X, label = batch[0], batch[1].reshape(-1).long()
-                    X = X.to(device)
-                    label = label.to(device)
+                    X, label = X.to(device), label.to(device)
 
                     X_hat, latent_params = vae(X)
 

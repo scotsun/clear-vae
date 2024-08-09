@@ -18,11 +18,12 @@ class SimpleCNNClassifier(nn.Module):
             nn.BatchNorm2d(128),
             nn.ReLU(),
             nn.Flatten(),
-            nn.Linear(2048, n_class),
         )
+        self.clf_head = nn.Linear(2048, n_class)
 
     def forward(self, x):
-        return self.net(x)
+        h = self.net(x)
+        return self.clf_head(h)
 
 
 class VAE(nn.Module):
