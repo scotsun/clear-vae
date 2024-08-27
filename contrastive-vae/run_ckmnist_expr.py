@@ -9,7 +9,7 @@ from corruption_utils import corruptions
 from src.model import SimpleCNNClassifier, VAE
 from src.trainer import SimpleCNNTrainer, CDVAETrainer, DownstreamMLPTrainer
 
-TAU = 0.05
+TAU = 0.1
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -75,7 +75,7 @@ def experiment(k, seed):
         cnn, optimizer, criterion, verbose_period=5, device=device
     )
     trainer.fit(epochs=41, train_loader=train_loader, valid_loader=valid_loader)
-    cnn_aupr_scores, cnn_auroc_scores = trainer.evaluate(test_loader, False, 0)
+    (cnn_aupr_scores, cnn_auroc_scores), _ = trainer.evaluate(test_loader, False, 0)
 
     # vae+mlp pipeline
     vae = VAE(total_z_dim=32).to(device)
@@ -85,17 +85,10 @@ def experiment(k, seed):
         optimizer,
         sim_fn="cosine",
         hyperparameter={
-<<<<<<< HEAD
             "temperature": TAU,
             "beta": 1,
             "loc": 0,
             "scale": 1,
-=======
-            "temperature": 0.1,
-            "beta": 0.5,
-            "loc": 5e3,
-            "scale": 1e3,
->>>>>>> parent of 9c29ca9 (update)
             "alpha": [50, 50],
             "label_flipping": True,
         },
@@ -116,7 +109,7 @@ def experiment(k, seed):
     criterion = torch.nn.CrossEntropyLoss()
     trainer = DownstreamMLPTrainer(vae, mlp, optimizer, criterion, 10, device)
     trainer.fit(41, train_loader, valid_loader)
-    mlp_aupr_scores, mlp_auroc_scores = trainer.evaluate(test_loader, False, 0)
+    (mlp_aupr_scores, mlp_auroc_scores), _ = trainer.evaluate(test_loader, False, 0)
 
     expr_output = dict()
     expr_output["cnn"] = {
