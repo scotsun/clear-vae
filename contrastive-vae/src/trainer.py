@@ -9,7 +9,7 @@ from tqdm import tqdm
 from src.losses import (
     vae_loss,
     contrastive_loss,
-    nt_xent_loss,
+    snn_loss,
     auc,
     accurary,
     mutual_info_gap,
@@ -326,14 +326,14 @@ class CDVAETrainer(Trainer):
 
                 _kl_c, _kl_s = annealer(_kl_c), annealer(_kl_s)
 
-                _ntxent_loss = nt_xent_loss(
+                _ntxent_loss = snn_loss(
                     mu=latent_params["mu_c"],
                     logvar=latent_params["logvar_c"],
                     label=label,
                     sim_fn=self.sim_fn,
                     temperature=temperature,
                 )
-                _reverse_ntxent_loss = nt_xent_loss(
+                _reverse_ntxent_loss = snn_loss(
                     mu=latent_params["mu_s"],
                     logvar=latent_params["logvar_s"],
                     label=label,
@@ -341,9 +341,9 @@ class CDVAETrainer(Trainer):
                     temperature=temperature,
                     flip=label_flipping,
                 )
-
                 if not label_flipping:
                     _reverse_ntxent_loss = -_reverse_ntxent_loss
+
                 loss = (
                     _recontr_loss
                     + _kl_c
@@ -393,14 +393,14 @@ class CDVAETrainer(Trainer):
                     X_hat, latent_params = vae(X)
 
                     _recontr_loss, _kl_c, _kl_s = vae_loss(X_hat, X, **latent_params)
-                    _ntxent_loss = nt_xent_loss(
+                    _ntxent_loss = snn_loss(
                         mu=latent_params["mu_c"],
                         logvar=latent_params["logvar_c"],
                         label=label,
                         sim_fn=self.sim_fn,
                         temperature=temperature,
                     )
-                    _reverse_ntxent_loss = nt_xent_loss(
+                    _reverse_ntxent_loss = snn_loss(
                         mu=latent_params["mu_s"],
                         logvar=latent_params["logvar_s"],
                         label=label,

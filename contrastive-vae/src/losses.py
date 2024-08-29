@@ -90,14 +90,14 @@ def pairwise_variance_adjusted_cosine(mu: torch.Tensor, logvar: torch.Tensor):
 def pairwise_jeffrey_div(mu: torch.Tensor, logvar: torch.Tensor):
     k = mu.shape[1]
     var = logvar.exp()
-    term1 = (var.prod(dim=-1)[None, :] / var.prod(dim=-1)[:, None]).log() - k
-    term2 = ((mu[None, :, :] - mu[:, None, :]) ** 2 / var).sum(dim=-1)
-    term3 = (var[None, :, :] / var[:, None, :]).sum(dim=-1)
+    term1 = logvar.sum(dim=-1)[None, :] - logvar.sum(dim=-1)[:, None] - k
+    term2 = ((mu[None, :, :] - mu[:, None, :]) ** 2 / logvar.exp()).sum(dim=-1)
+    term3 = (var[None, :, :] / (var[:, None, :] + 1e-8)).sum(dim=-1)
 
     pairwise_kl = 0.5 * (term1 + term2 + term3)
     pairwise_jeff = 0.5 * (pairwise_kl + pairwise_kl.T)
 
-    return pairwise_jeff
+    return -pairwise_jeff
 
 
 @jit.script
@@ -111,9 +111,7 @@ def logsumexp(x: Tensor, dim: int) -> Tensor:
     return s.masked_fill_(mask, 1).log() + m.masked_fill_(mask, -float("inf"))
 
 
-# Technically, we are using soft-nearest-neighbor loss (multiple pos pair version of nt-xent)
-# but due to SimCLR's popularity, we refer it as nt-xent loss
-def _nt_xent_loss(sim: torch.Tensor, pos_target: torch.Tensor, temperature: float):
+def _snn_loss(sim: torch.Tensor, pos_target: torch.Tensor, temperature: float):
     n = sim.shape[0]
     sim = sim.clone()
     sim[torch.eye(n).bool()] = float("-Inf")
@@ -125,7 +123,7 @@ def _nt_xent_loss(sim: torch.Tensor, pos_target: torch.Tensor, temperature: floa
     return loss
 
 
-def nt_xent_loss(
+def snn_loss(
     mu: torch.Tensor,
     logvar: torch.Tensor,
     label: torch.Tensor,
@@ -146,6 +144,6 @@ def nt_xent_loss(
             sim = pairwise_jeffrey_div(mu, logvar)
         case _:
             raise ValueError("unimplemented similarity measure.")
-    losses = _nt_xent_loss(sim, pos_target, temperature)
+    losses = _snn_loss(sim, pos_target, temperature)
     finite_mask = torch.isfinite(losses)
     return losses[finite_mask].mean()
