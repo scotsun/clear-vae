@@ -101,7 +101,7 @@ class VAE(nn.Module):
         }
         if explicit:
             xhat, z = self.generate(mu_c, logvar_c, mu_s, logvar_s, True)
-            return xhat, latent_param, z
+            return xhat, latent_param, z  # z = (z_c, z_s)
         else:
             xhat = self.generate(mu_c, logvar_c, mu_s, logvar_s, False)
             return xhat, latent_param

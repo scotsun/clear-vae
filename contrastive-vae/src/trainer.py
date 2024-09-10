@@ -14,6 +14,7 @@ from src.losses import (
     accurary,
     mutual_info_gap,
 )
+from src.model import VAE
 
 
 class LogisticAnnealer:
@@ -286,7 +287,7 @@ class SimpleCNNTrainer(Trainer):
 class CDVAETrainer(Trainer):
     def __init__(
         self,
-        model: nn.Module,
+        model: VAE,
         optimizer: Optimizer,
         sim_fn: str,
         hyperparameter: dict[str, float],
@@ -367,7 +368,7 @@ class CDVAETrainer(Trainer):
 
     def _valid(self, dataloader, verbose, epoch_id):
         if verbose:
-            vae = self.model
+            vae: VAE = self.model
             vae.eval()
             device = self.device
             temperature = self.hyperparameter["temperature"]
@@ -390,7 +391,7 @@ class CDVAETrainer(Trainer):
                     X, label = batch[0], batch[1].reshape(-1).long()
                     X, label = X.to(device), label.to(device)
 
-                    X_hat, latent_params = vae(X)
+                    X_hat, latent_params, z = vae(X, explicit=True)
 
                     _recontr_loss, _kl_c, _kl_s = vae_loss(X_hat, X, **latent_params)
                     _ntxent_loss = snn_loss(
@@ -418,8 +419,8 @@ class CDVAETrainer(Trainer):
                     total_s_loss += _reverse_ntxent_loss
 
                     all_label.append(label)
-                    all_latent_c.append(latent_params["mu_c"])
-                    all_latent_s.append(latent_params["mu_s"])
+                    all_latent_c.append(z[:, : vae.z_dim])
+                    all_latent_s.append(z[:, vae.z_dim :])
             all_label, all_latent_c, all_latent_s = (
                 torch.cat(all_label),
                 torch.cat(all_latent_c),
