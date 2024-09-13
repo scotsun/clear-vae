@@ -325,8 +325,6 @@ class CDVAETrainer(Trainer):
 
                 _recontr_loss, _kl_c, _kl_s = vae_loss(X_hat, X, **latent_params)
 
-                _kl_c, _kl_s = annealer(_kl_c), annealer(_kl_s)
-
                 _ntxent_loss = snn_loss(
                     mu=latent_params["mu_c"],
                     logvar=latent_params["logvar_c"],
@@ -347,8 +345,8 @@ class CDVAETrainer(Trainer):
 
                 loss = (
                     _recontr_loss
-                    + _kl_c
-                    + _kl_s
+                    + annealer(_kl_c)
+                    + annealer(_kl_s)
                     + alpha[0] * _ntxent_loss
                     + alpha[1] * _reverse_ntxent_loss
                 )
@@ -427,6 +425,7 @@ class CDVAETrainer(Trainer):
                 torch.cat(all_latent_s),
             )
             mig = mutual_info_gap(all_label, all_latent_c, all_latent_s)
+            elbo = (total_recontr_loss + total_kl_c + total_kl_s) / len(dataloader)
 
             print(
                 "val_recontr_loss={:.3f}, val_kl_c={:.3f}, val_kl_s={:.3f}, val_c_loss={:.3f}, val_s_loss={:.3f}".format(
@@ -437,4 +436,4 @@ class CDVAETrainer(Trainer):
                     total_s_loss / len(dataloader),
                 )
             )
-            print(f"gMIG: {round(mig, 3)}")
+            print(f"gMIG: {round(mig, 3)}; elbo: {-round(float(elbo), 3)}")

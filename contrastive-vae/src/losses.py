@@ -33,20 +33,20 @@ def auc(logit: torch.Tensor, y: torch.Tensor):
     return aupr_scores, auroc_scores
 
 
+def sample_level_reduction(tensor: Tensor):
+    n_dims = len(tensor.shape)
+    return tensor.sum(dim=list(range(n_dims))[1:]).mean()
+
+
 def vae_loss(x_reconstr, x, mu_c, mu_s, logvar_c, logvar_s):
     """
     VAE loss with separating factors.
     """
-    dims = len(x.shape)
-    reconstruction_loss = (
-        F.mse_loss(
-            x_reconstr, x, reduction="none"
-        )  # shoud be mse but bce gives better result
-        .sum(dim=list(range(dims))[1:])
-        .mean()
+    reconstruction_loss = sample_level_reduction(
+        F.mse_loss(x_reconstr, x, reduction="none")
     )
-    kl_c = -0.5 * torch.mean(1 + logvar_c - mu_c.pow(2) - logvar_c.exp())
-    kl_s = -0.5 * torch.mean(1 + logvar_s - mu_s.pow(2) - logvar_s.exp())
+    kl_c = -0.5 * sample_level_reduction(1 + logvar_c - mu_c.pow(2) - logvar_c.exp())
+    kl_s = -0.5 * sample_level_reduction(1 + logvar_s - mu_s.pow(2) - logvar_s.exp())
     return reconstruction_loss, kl_c, kl_s
 
 

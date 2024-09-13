@@ -78,7 +78,7 @@ def experiment(k, seed):
     (cnn_aupr_scores, cnn_auroc_scores), _ = trainer.evaluate(test_loader, False, 0)
 
     # vae+mlp pipeline
-    vae = VAE(total_z_dim=32).to(device)
+    vae = VAE(total_z_dim=16).to(device)
     optimizer = torch.optim.Adam(vae.parameters(), lr=1e-3)
     trainer = CDVAETrainer(
         vae,
@@ -86,7 +86,7 @@ def experiment(k, seed):
         sim_fn="cosine",
         hyperparameter={
             "temperature": TAU,
-            "beta": 1,
+            "beta": 1 / 4,
             "loc": 0,
             "scale": 1,
             "alpha": [50, 50],
@@ -100,7 +100,7 @@ def experiment(k, seed):
     for p in vae.parameters():
         p.requires_grad = False
     mlp = torch.nn.Sequential(
-        torch.nn.Linear(16, 256),
+        torch.nn.Linear(8, 256),
         torch.nn.BatchNorm1d(256),
         torch.nn.ReLU(),
         torch.nn.Linear(256, 10),
