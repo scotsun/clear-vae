@@ -367,7 +367,7 @@ class CDVAETrainer(Trainer):
     def _valid(self, dataloader, verbose, epoch_id):
         if verbose:
             mig, elbo = self.evaluate(dataloader, verbose, epoch_id)
-            print(f"gMIG: {round(mig, 3)}; elbo: {-round(float(elbo), 3)}")
+            print(f"gMIG: {round(mig, 3)}; elbo: {round(float(elbo), 3)}")
 
     def evaluate(self, dataloader, verbose, epoch_id):
         vae: VAE = self.model
