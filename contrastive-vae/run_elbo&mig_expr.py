@@ -17,7 +17,7 @@ CORRUPTION_FNS = {
     corruptions.canny_edges: 0.1,
     corruptions.brightness: 0.2,
 }
-BETAS = [1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8]
+BETAS = [1 / 32, 1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8]
 
 
 def get_args():
