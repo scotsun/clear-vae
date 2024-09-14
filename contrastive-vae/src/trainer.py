@@ -366,67 +366,72 @@ class CDVAETrainer(Trainer):
 
     def _valid(self, dataloader, verbose, epoch_id):
         if verbose:
-            vae: VAE = self.model
-            vae.eval()
-            device = self.device
-            temperature = self.hyperparameter["temperature"]
-            label_flipping = self.hyperparameter["label_flipping"]
-            total_recontr_loss, total_kl_c, total_kl_s, total_c_loss, total_s_loss = (
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-            )
+            mig, elbo = self.evaluate(dataloader, verbose, epoch_id)
+            print(f"gMIG: {round(mig, 3)}; elbo: {-round(float(elbo), 3)}")
 
-            all_label = []
-            all_latent_c = []
-            all_latent_s = []
-            with torch.no_grad():
-                for batch in tqdm(
-                    dataloader, disable=not verbose, desc=f"val-epoch {epoch_id}"
-                ):
-                    X, label = batch[0], batch[1].reshape(-1).long()
-                    X, label = X.to(device), label.to(device)
+    def evaluate(self, dataloader, verbose, epoch_id):
+        vae: VAE = self.model
+        vae.eval()
+        device = self.device
+        temperature = self.hyperparameter["temperature"]
+        label_flipping = self.hyperparameter["label_flipping"]
+        total_recontr_loss, total_kl_c, total_kl_s, total_c_loss, total_s_loss = (
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        )
 
-                    X_hat, latent_params, z = vae(X, explicit=True)
+        all_label = []
+        all_latent_c = []
+        all_latent_s = []
+        with torch.no_grad():
+            for batch in tqdm(
+                dataloader, disable=not verbose, desc=f"val-epoch {epoch_id}"
+            ):
+                X, label = batch[0], batch[1].reshape(-1).long()
+                X, label = X.to(device), label.to(device)
 
-                    _recontr_loss, _kl_c, _kl_s = vae_loss(X_hat, X, **latent_params)
-                    _ntxent_loss = snn_loss(
-                        mu=latent_params["mu_c"],
-                        logvar=latent_params["logvar_c"],
-                        label=label,
-                        sim_fn=self.sim_fn,
-                        temperature=temperature,
-                    )
-                    _reverse_ntxent_loss = snn_loss(
-                        mu=latent_params["mu_s"],
-                        logvar=latent_params["logvar_s"],
-                        label=label,
-                        sim_fn=self.sim_fn,
-                        temperature=temperature,
-                        flip=label_flipping,
-                    )
-                    if not label_flipping:
-                        _reverse_ntxent_loss = -_reverse_ntxent_loss
+                X_hat, latent_params, z = vae(X, explicit=True)
 
-                    total_recontr_loss += _recontr_loss
-                    total_kl_c += _kl_c
-                    total_kl_s += _kl_s
-                    total_c_loss += _ntxent_loss
-                    total_s_loss += _reverse_ntxent_loss
+                _recontr_loss, _kl_c, _kl_s = vae_loss(X_hat, X, **latent_params)
+                _ntxent_loss = snn_loss(
+                    mu=latent_params["mu_c"],
+                    logvar=latent_params["logvar_c"],
+                    label=label,
+                    sim_fn=self.sim_fn,
+                    temperature=temperature,
+                )
+                _reverse_ntxent_loss = snn_loss(
+                    mu=latent_params["mu_s"],
+                    logvar=latent_params["logvar_s"],
+                    label=label,
+                    sim_fn=self.sim_fn,
+                    temperature=temperature,
+                    flip=label_flipping,
+                )
+                if not label_flipping:
+                    _reverse_ntxent_loss = -_reverse_ntxent_loss
 
-                    all_label.append(label)
-                    all_latent_c.append(z[:, : vae.z_dim])
-                    all_latent_s.append(z[:, vae.z_dim :])
-            all_label, all_latent_c, all_latent_s = (
-                torch.cat(all_label),
-                torch.cat(all_latent_c),
-                torch.cat(all_latent_s),
-            )
-            mig = mutual_info_gap(all_label, all_latent_c, all_latent_s)
-            elbo = (total_recontr_loss + total_kl_c + total_kl_s) / len(dataloader)
+                total_recontr_loss += _recontr_loss
+                total_kl_c += _kl_c
+                total_kl_s += _kl_s
+                total_c_loss += _ntxent_loss
+                total_s_loss += _reverse_ntxent_loss
 
+                all_label.append(label)
+                all_latent_c.append(z[:, : vae.z_dim])
+                all_latent_s.append(z[:, vae.z_dim :])
+        all_label, all_latent_c, all_latent_s = (
+            torch.cat(all_label),
+            torch.cat(all_latent_c),
+            torch.cat(all_latent_s),
+        )
+        mig = mutual_info_gap(all_label, all_latent_c, all_latent_s)
+        elbo = -float(total_recontr_loss + total_kl_c + total_kl_s) / len(dataloader)
+
+        if verbose:
             print(
                 "val_recontr_loss={:.3f}, val_kl_c={:.3f}, val_kl_s={:.3f}, val_c_loss={:.3f}, val_s_loss={:.3f}".format(
                     total_recontr_loss / len(dataloader),
@@ -436,4 +441,5 @@ class CDVAETrainer(Trainer):
                     total_s_loss / len(dataloader),
                 )
             )
-            print(f"gMIG: {round(mig, 3)}; elbo: {-round(float(elbo), 3)}")
+
+        return mig, elbo
