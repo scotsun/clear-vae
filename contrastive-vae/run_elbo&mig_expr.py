@@ -142,10 +142,7 @@ def main():
         }
     )
     df_mig_elbo.to_csv(
-        f"""
-        ./expr_output/ckmnist/mig_elbo_seed{args.seed}
-        _a{args.alpha}_z{args.z_dim}_t{args.temperature}.csv
-        """,
+        f"./expr_output/ckmnist/mig_elbo_s{args.seed}_a{args.alpha}_z{args.z_dim}_t{args.temperature}.csv",
         index=False,
     )
 
