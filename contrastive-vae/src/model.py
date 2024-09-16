@@ -29,7 +29,7 @@ class SimpleCNNClassifier(nn.Module):
 class VAE(nn.Module):
     def __init__(self, total_z_dim, in_channel: int = 1) -> None:
         super().__init__()
-        z_dim = int(total_z_dim / 2)
+        self.z_dim = int(total_z_dim / 2)
         # encoder
         self.encoder = nn.Sequential(
             nn.Conv2d(in_channel, 32, 3, 2, 1),
@@ -43,13 +43,13 @@ class VAE(nn.Module):
             nn.ReLU(),
             nn.Flatten(),
         )
-        self.mu_c = nn.Linear(2048, z_dim)
-        self.logvar_c = nn.Linear(2048, z_dim)
-        self.mu_s = nn.Linear(2048, z_dim)
-        self.logvar_s = nn.Linear(2048, z_dim)
+        self.mu_c = nn.Linear(2048, self.z_dim)
+        self.logvar_c = nn.Linear(2048, self.z_dim)
+        self.mu_s = nn.Linear(2048, self.z_dim)
+        self.logvar_s = nn.Linear(2048, self.z_dim)
         # decoder
         self.decoder = nn.Sequential(
-            nn.Linear(z_dim * 2, 2048),
+            nn.Linear(self.z_dim * 2, 2048),
             nn.BatchNorm1d(2048),
             nn.ReLU(),
             nn.Unflatten(1, (128, 4, 4)),
@@ -101,7 +101,7 @@ class VAE(nn.Module):
         }
         if explicit:
             xhat, z = self.generate(mu_c, logvar_c, mu_s, logvar_s, True)
-            return xhat, latent_param, z
+            return xhat, latent_param, z  # z = (z_c, z_s)
         else:
             xhat = self.generate(mu_c, logvar_c, mu_s, logvar_s, False)
             return xhat, latent_param

@@ -22,34 +22,31 @@ def accurary(logit: torch.Tensor, y: torch.Tensor):
 
 
 def auc(logit: torch.Tensor, y: torch.Tensor):
-    num_classes = y.max() + 1
-    ph = logit.softmax(dim=1).detach()
+    num_classes = int(y.max() + 1)
+    ph = logit.softmax(dim=1).detach().cpu()
+    y = y.cpu()
     y_binarized = torch.eye(num_classes)[y]
     aupr_scores, auroc_scores = dict(), dict()
     for i in range(num_classes):
-        aupr_scores[i] = round(
-            average_precision_score(y_binarized[:, i].cpu(), ph[:, i].cpu()), 3
-        )
-        auroc_scores[i] = round(
-            roc_auc_score(y_binarized[:, i].cpu(), ph[:, i].cpu()), 3
-        )
+        aupr_scores[i] = round(average_precision_score(y_binarized[:, i], ph[:, i]), 3)
+        auroc_scores[i] = round(roc_auc_score(y_binarized[:, i], ph[:, i]), 3)
     return aupr_scores, auroc_scores
+
+
+def sample_level_reduction(tensor: Tensor):
+    n_dims = len(tensor.shape)
+    return tensor.sum(dim=list(range(n_dims))[1:]).mean()
 
 
 def vae_loss(x_reconstr, x, mu_c, mu_s, logvar_c, logvar_s):
     """
     VAE loss with separating factors.
     """
-    dims = len(x.shape)
-    reconstruction_loss = (
-        F.mse_loss(
-            x_reconstr, x, reduction="none"
-        )  # shoud be mse but bce gives better result
-        .sum(dim=list(range(dims))[1:])
-        .mean()
+    reconstruction_loss = sample_level_reduction(
+        F.mse_loss(x_reconstr, x, reduction="none")
     )
-    kl_c = -0.5 * torch.mean(1 + logvar_c - mu_c.pow(2) - logvar_c.exp())
-    kl_s = -0.5 * torch.mean(1 + logvar_s - mu_s.pow(2) - logvar_s.exp())
+    kl_c = -0.5 * sample_level_reduction(1 + logvar_c - mu_c.pow(2) - logvar_c.exp())
+    kl_s = -0.5 * sample_level_reduction(1 + logvar_s - mu_s.pow(2) - logvar_s.exp())
     return reconstruction_loss, kl_c, kl_s
 
 
@@ -82,22 +79,28 @@ def pairwise_cosine(mu: torch.Tensor):
 
 
 def pairwise_variance_adjusted_cosine(mu: torch.Tensor, logvar: torch.Tensor):
-    sigma = logvar.exp().sqrt()
-    z = mu / sigma
+    sd = (0.5 * logvar).exp()
+    z = mu / sd
     return F.cosine_similarity(z[None, :, :], z[:, None, :], dim=-1)
 
 
 def pairwise_jeffrey_div(mu: torch.Tensor, logvar: torch.Tensor):
     k = mu.shape[1]
     var = logvar.exp()
-    term1 = (var.prod(dim=-1)[None, :] / var.prod(dim=-1)[:, None]).log() - k
-    term2 = ((mu[None, :, :] - mu[:, None, :]) ** 2 / var).sum(dim=-1)
-    term3 = (var[None, :, :] / var[:, None, :]).sum(dim=-1)
+    term1 = logvar.sum(dim=-1)[None, :] - logvar.sum(dim=-1)[:, None] - k
+    term2 = ((mu[None, :, :] - mu[:, None, :]) ** 2 / logvar.exp()).sum(dim=-1)
+    term3 = (var[None, :, :] / (var[:, None, :] + 1e-8)).sum(dim=-1)
 
     pairwise_kl = 0.5 * (term1 + term2 + term3)
     pairwise_jeff = 0.5 * (pairwise_kl + pairwise_kl.T)
 
-    return pairwise_jeff
+    return -pairwise_jeff
+
+
+def pairwise_mahalanobis_dis(mu: torch.Tensor, logvar: torch.Tensor):
+    var = logvar.exp()
+    dis_mat = ((mu[None, :, :] - mu[:, None, :]) ** 2 / var).sum(dim=-1)
+    return -0.5 * (dis_mat + dis_mat.T)
 
 
 @jit.script
@@ -111,9 +114,7 @@ def logsumexp(x: Tensor, dim: int) -> Tensor:
     return s.masked_fill_(mask, 1).log() + m.masked_fill_(mask, -float("inf"))
 
 
-# Technically, we are using soft-nearest-neighbor loss (multiple pos pair version of nt-xent)
-# but due to SimCLR's popularity, we refer it as nt-xent loss
-def _nt_xent_loss(sim: torch.Tensor, pos_target: torch.Tensor, temperature: float):
+def _snn_loss(sim: torch.Tensor, pos_target: torch.Tensor, temperature: float):
     n = sim.shape[0]
     sim = sim.clone()
     sim[torch.eye(n).bool()] = float("-Inf")
@@ -125,7 +126,7 @@ def _nt_xent_loss(sim: torch.Tensor, pos_target: torch.Tensor, temperature: floa
     return loss
 
 
-def nt_xent_loss(
+def snn_loss(
     mu: torch.Tensor,
     logvar: torch.Tensor,
     label: torch.Tensor,
@@ -144,8 +145,10 @@ def nt_xent_loss(
             sim = pairwise_variance_adjusted_cosine(mu, logvar)
         case "jeffrey":
             sim = pairwise_jeffrey_div(mu, logvar)
+        case "mahalanobis":
+            sim = pairwise_mahalanobis_dis(mu, logvar)
         case _:
             raise ValueError("unimplemented similarity measure.")
-    losses = _nt_xent_loss(sim, pos_target, temperature)
+    losses = _snn_loss(sim, pos_target, temperature)
     finite_mask = torch.isfinite(losses)
     return losses[finite_mask].mean()
