@@ -18,7 +18,7 @@ style_fns = [
     corruptions.stripe,
     corruptions.zigzag,
     corruptions.canny_edges,
-    corruptions.spatter,
+    lambda x: corruptions.scale(x, 5),
     corruptions.brightness,
 ]
 

@@ -11,10 +11,11 @@ from src.utils import CMNISTGenerator, CMNIST
 from corruption_utils import corruptions
 
 CORRUPTION_FNS = {
-    corruptions.identity: 0.2,
+    corruptions.identity: 0.15,
     corruptions.stripe: 0.2,
-    corruptions.zigzag: 0.3,
+    corruptions.zigzag: 0.25,
     corruptions.canny_edges: 0.1,
+    lambda x: corruptions.scale(x, 5): 0.1,
     corruptions.brightness: 0.2,
 }
 BETAS = [1 / 32, 1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8]

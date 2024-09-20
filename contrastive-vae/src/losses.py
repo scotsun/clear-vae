@@ -78,10 +78,8 @@ def pairwise_cosine(mu: torch.Tensor):
     return F.cosine_similarity(mu[None, :, :], mu[:, None, :], dim=-1)
 
 
-def pairwise_variance_adjusted_cosine(mu: torch.Tensor, logvar: torch.Tensor):
-    sd = (0.5 * logvar).exp()
-    z = mu / sd
-    return F.cosine_similarity(z[None, :, :], z[:, None, :], dim=-1)
+def pairwise_l2(mu: torch.Tensor):
+    return -((mu[None, :, :] - mu[:, None, :]) ** 2).sum(dim=-1)
 
 
 def pairwise_jeffrey_div(mu: torch.Tensor, logvar: torch.Tensor):
@@ -141,8 +139,8 @@ def snn_loss(
     match sim_fn:
         case "cosine":
             sim = pairwise_cosine(mu)
-        case "cosine-var-adjust":
-            sim = pairwise_variance_adjusted_cosine(mu, logvar)
+        case "l2":
+            sim = pairwise_l2(mu)
         case "jeffrey":
             sim = pairwise_jeffrey_div(mu, logvar)
         case "mahalanobis":
