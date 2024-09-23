@@ -25,7 +25,7 @@ style_fns = [
 
 def get_data_splits(k: int, seed: int):
     """
-    Generate data splits and style dictionaries for CKMNIST dataset
+    Generate data splits and style dictionaries for k styled MNIST dataset
 
     Parameters:
         k (int): The number of styles to generate for each class
@@ -33,39 +33,35 @@ def get_data_splits(k: int, seed: int):
 
     Returns:
         style_dict (dict): A dictionary containing the style information for each class
-        ckmnist_train (CKMNIST): The training set of the CKMNIST dataset
-        ckmnist_valid (CKMNIST): The validation set of the CKMNIST dataset
-        ckmnist_test (CKMNIST): The test set of the CKMNIST dataset
+        train (k styled MNIST)
+        valid (k styled MNIST)
+        test (m-k styled MNIST)
     """
     np.random.seed(seed)
     torch.manual_seed(seed)
     mnist = torchvision.datasets.MNIST("../data", train=True)
     mnist_train, mnist_test = random_split(mnist, [50000, 10000])
     style_dict = generate_style_dict(classes=list(range(10)), style_fns=style_fns, k=k)
-    ckmnist_generator = KStyledMNISTGenerator(mnist_train, style_dict, "train")
-    ckmnist_train = KStyledMNIST(
-        ckmnist_generator,
+    mnist_generator = KStyledMNISTGenerator(mnist_train, style_dict, "train")
+    train = KStyledMNIST(
+        mnist_generator,
         transforms.Compose([transforms.ToTensor(), lambda img: img / 255.0]),
     )
-    ckmnist_generator = KStyledMNISTGenerator(mnist_test, style_dict, "test")
-    ckmnist_test = KStyledMNIST(
-        ckmnist_generator,
+    mnist_generator = KStyledMNISTGenerator(mnist_test, style_dict, "test")
+    test = KStyledMNIST(
+        mnist_generator,
         transforms.Compose([transforms.ToTensor(), lambda img: img / 255.0]),
     )
-    train_size = int(0.85 * len(ckmnist_train))
-    ckmnist_train, ckmnist_valid = random_split(
-        ckmnist_train, [train_size, len(ckmnist_train) - train_size]
-    )
-    return style_dict, ckmnist_train, ckmnist_valid, ckmnist_test
+    train_size = int(0.85 * len(train))
+    train, valid = random_split(train, [train_size, len(train) - train_size])
+    return style_dict, train, valid, test
 
 
 def experiment(k, seed):
-    style_dict, ckmnist_train, ckmnist_valid, ckmnist_test = get_data_splits(
-        k=k, seed=seed
-    )
-    train_loader = DataLoader(ckmnist_train, batch_size=128, shuffle=True)
-    valid_loader = DataLoader(ckmnist_valid, batch_size=128, shuffle=False)
-    test_loader = DataLoader(ckmnist_test, batch_size=128, shuffle=False)
+    style_dict, train, valid, test = get_data_splits(k=k, seed=seed)
+    train_loader = DataLoader(train, batch_size=128, shuffle=True)
+    valid_loader = DataLoader(valid, batch_size=128, shuffle=False)
+    test_loader = DataLoader(test, batch_size=128, shuffle=False)
 
     # cnn pipeline
     cnn = SimpleCNNClassifier(n_class=10).to(device)
@@ -141,7 +137,7 @@ def experiment(k, seed):
 
     print(expr_output)
 
-    fpath = f"./expr_output/ckmnist/cls/cmnist-k{k}-{seed}.json"
+    fpath = f"./expr_output/cmnist/cls/cmnist-k{k}-{seed}.json"
     with open(fpath, "w") as json_file:
         json.dump(expr_output, json_file, indent=4)
 
