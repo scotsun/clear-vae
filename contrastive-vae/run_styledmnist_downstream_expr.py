@@ -4,7 +4,7 @@ import torchvision
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader, random_split
 import json
-from expr.expr_util import generate_style_dict, CKMNISTGenerator, CKMNIST
+from expr.expr_util import generate_style_dict, KStyledMNISTGenerator, KStyledMNIST
 from corruption_utils import corruptions
 from src.model import SimpleCNNClassifier, VAE
 from src.trainer import SimpleCNNTrainer, CDVAETrainer, DownstreamMLPTrainer
@@ -42,13 +42,13 @@ def get_data_splits(k: int, seed: int):
     mnist = torchvision.datasets.MNIST("../data", train=True)
     mnist_train, mnist_test = random_split(mnist, [50000, 10000])
     style_dict = generate_style_dict(classes=list(range(10)), style_fns=style_fns, k=k)
-    ckmnist_generator = CKMNISTGenerator(mnist_train, style_dict, "train")
-    ckmnist_train = CKMNIST(
+    ckmnist_generator = KStyledMNISTGenerator(mnist_train, style_dict, "train")
+    ckmnist_train = KStyledMNIST(
         ckmnist_generator,
         transforms.Compose([transforms.ToTensor(), lambda img: img / 255.0]),
     )
-    ckmnist_generator = CKMNISTGenerator(mnist_test, style_dict, "test")
-    ckmnist_test = CKMNIST(
+    ckmnist_generator = KStyledMNISTGenerator(mnist_test, style_dict, "test")
+    ckmnist_test = KStyledMNIST(
         ckmnist_generator,
         transforms.Compose([transforms.ToTensor(), lambda img: img / 255.0]),
     )
@@ -75,7 +75,9 @@ def experiment(k, seed):
         cnn, optimizer, criterion, verbose_period=5, device=device
     )
     trainer.fit(epochs=41, train_loader=train_loader, valid_loader=valid_loader)
-    (cnn_aupr_scores, cnn_auroc_scores), _ = trainer.evaluate(test_loader, False, 0)
+    (cnn_aupr_scores, cnn_auroc_scores), cnn_acc = trainer.evaluate(
+        test_loader, False, 0
+    )
 
     # vae+mlp pipeline
     vae = VAE(total_z_dim=16).to(device)
@@ -86,7 +88,7 @@ def experiment(k, seed):
         sim_fn="cosine",
         hyperparameter={
             "temperature": TAU,
-            "beta": 1 / 4,
+            "beta": 1 / 8,
             "loc": 0,
             "scale": 1,
             "alpha": [1e2, 1e2],
@@ -95,7 +97,7 @@ def experiment(k, seed):
         verbose_period=5,
         device=device,
     )
-    trainer.fit(26, train_loader, valid_loader)
+    trainer.fit(41, train_loader, valid_loader)
     vae.eval()
     for p in vae.parameters():
         p.requires_grad = False
@@ -109,10 +111,13 @@ def experiment(k, seed):
     criterion = torch.nn.CrossEntropyLoss()
     trainer = DownstreamMLPTrainer(vae, mlp, optimizer, criterion, 10, device)
     trainer.fit(41, train_loader, valid_loader)
-    (mlp_aupr_scores, mlp_auroc_scores), _ = trainer.evaluate(test_loader, False, 0)
+    (mlp_aupr_scores, mlp_auroc_scores), mlp_acc = trainer.evaluate(
+        test_loader, False, 0
+    )
 
     expr_output = dict()
     expr_output["cnn"] = {
+        "acc": round(float(cnn_acc), 3),
         "pr": {
             "overall": np.mean(list(cnn_aupr_scores.values())).round(3),
             "stratified": cnn_aupr_scores,
@@ -123,6 +128,7 @@ def experiment(k, seed):
         },
     }
     expr_output["vae + mlp"] = {
+        "acc": round(float(mlp_acc), 3),
         "pr": {
             "overall": np.mean(list(mlp_aupr_scores.values())).round(3),
             "stratified": mlp_aupr_scores,
@@ -135,7 +141,7 @@ def experiment(k, seed):
 
     print(expr_output)
 
-    fpath = f"./expr_output/ckmnist/cmnist-k{k}-{seed}.json"
+    fpath = f"./expr_output/ckmnist/cls/cmnist-k{k}-{seed}.json"
     with open(fpath, "w") as json_file:
         json.dump(expr_output, json_file, indent=4)
 

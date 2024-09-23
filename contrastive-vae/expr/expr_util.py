@@ -15,7 +15,7 @@ def generate_style_dict(classes: list, style_fns: list, k: int):
     return style_dict
 
 
-class CKMNISTGenerator:
+class KStyledMNISTGenerator:
     def __init__(self, dataset: Dataset, style_dict: dict, split: str) -> None:
         self.dataset = dataset
         self.style_dict = style_dict
@@ -34,7 +34,7 @@ class CKMNISTGenerator:
         return len(self.dataset)
 
 
-class CKMNIST(Dataset):
+class KStyledMNIST(Dataset):
     def __init__(self, generator, transform) -> None:
         super().__init__()
         self.generator = generator

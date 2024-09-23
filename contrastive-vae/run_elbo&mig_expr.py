@@ -7,7 +7,7 @@ import torchvision
 from torchvision import transforms
 from src.model import VAE
 from src.trainer import CDVAETrainer
-from src.utils import CMNISTGenerator, CMNIST
+from src.utils import StyledMNISTGenerator, StyledMNIST
 from corruption_utils import corruptions
 
 CORRUPTION_FNS = {
@@ -50,8 +50,8 @@ def get_data(seed):
     torch.manual_seed(seed)
     # generate data
     mnist = torchvision.datasets.MNIST("../data", train=True, download=True)
-    generator = CMNISTGenerator(mnist, CORRUPTION_FNS)
-    dataset = CMNIST(
+    generator = StyledMNISTGenerator(mnist, CORRUPTION_FNS)
+    dataset = StyledMNIST(
         generator, transforms.Compose([transforms.ToTensor(), lambda img: img / 255.0])
     )
     train, valid, test = random_split(dataset, [40_000, 10_000, 10_000])

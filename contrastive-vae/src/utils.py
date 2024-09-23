@@ -101,7 +101,7 @@ def random_style_distribution(
     return output
 
 
-class CMNISTGenerator:
+class StyledMNISTGenerator:
     def __init__(self, dataset: Dataset, corruption_fns: None | dict) -> None:
         self.dataset = dataset
         self.corruption_fns = list(corruption_fns.keys())
@@ -123,7 +123,7 @@ class CMNISTGenerator:
         return len(self.dataset)
 
 
-class CMNIST(Dataset):
+class StyledMNIST(Dataset):
     def __init__(self, generator, transform) -> None:
         super().__init__()
         self.generator = generator
