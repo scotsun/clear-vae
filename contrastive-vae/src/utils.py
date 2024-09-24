@@ -6,9 +6,54 @@ import torchvision
 import torchvision.transforms as transforms
 from torch.utils.data import Dataset
 from tqdm import tqdm
-from IPython import display
+import matplotlib.pyplot as plt
+from torchvision.utils import make_grid
+
 
 from corruption_utils import corruptions
+from src.model import VAE
+
+
+def interpolate_latent(latent1, latent2, num_steps, device):
+    """Interpolate between two latent vectors."""
+    p = torch.linspace(1, 0, num_steps).to(device)
+    # reshape to interpolation matrix shape (num_step, latent_dim)
+    latent_dim = latent1.shape[-1]
+    p = p[:, None].repeat((1, latent_dim))
+    latent1 = latent1[None, :].repeat((num_steps, 1))
+    latent2 = latent2[None, :].repeat((num_steps, 1))
+    # generate interpolation matrix
+    return p * latent1 + (1 - p) * latent2
+
+
+def display_util(idx1, idx2, z: torch.Tensor, model: VAE, z_dim, device):
+    with torch.no_grad():
+        z1, z2 = z[idx1], z[idx2]
+
+        img1 = transforms.ToPILImage()(model.decode(z1.view(1, -1))[0])
+        img2 = transforms.ToPILImage()(model.decode(z2.view(1, -1))[0])
+
+        z_inter = interpolate_latent(
+            latent1=z1[z_dim:], latent2=z2[z_dim:], num_steps=11, device=device
+        )
+        z_combined = torch.cat([z1[:z_dim][None, :].repeat(11, 1), z_inter], dim=1)
+        x_inter = model.decode(z_combined)
+        print("interpolate style:")
+        plt.imshow(make_grid(x_inter, nrow=11).permute(1, 2, 0).cpu())
+        plt.axis("off")
+        plt.show()
+
+        z_inter = interpolate_latent(
+            latent1=z1[:z_dim], latent2=z2[:z_dim], num_steps=11, device=device
+        )
+        z_combined = torch.cat([z_inter, z1[z_dim:][None, :].repeat(11, 1)], dim=1)
+        x_inter = model.decode(z_combined)
+        print("interpolate content:")
+        plt.imshow(make_grid(x_inter, nrow=11).permute(1, 2, 0).cpu())
+        plt.axis("off")
+        plt.show()
+
+        return img1, img2
 
 
 class MNISTPairGenerator:
@@ -83,7 +128,7 @@ class PairDataset(Dataset):
     def display(self, idx):
         img1, img2, content_label, style_label = self.__getitem__(idx)
         print(f"content label: {int(content_label)}, style label: {style_label}")
-        display(transforms.ToPILImage()(img1), transforms.ToPILImage()(img2))
+        return transforms.ToPILImage()(img1), transforms.ToPILImage()(img2)
 
 
 def random_style_distribution(
@@ -145,4 +190,49 @@ class StyledMNIST(Dataset):
 
     def display(self, idx):
         img, _, _ = self.__getitem__(idx)
-        display(transforms.ToPILImage()(img))
+        return transforms.ToPILImage()(img)
+
+
+ATTR_TO_COLUMN = {
+    "male": 20,
+    "smiling": 31,
+    "bold": 4,
+    "black hair": 8,
+    "blond hair": 9,
+    "brown hair": 11,
+    "gray hair": 17,
+}
+
+HAIRCOLOR_IDS = [
+    ATTR_TO_COLUMN[c]
+    for c in ["bold", "black hair", "blond hair", "brown hair", "gray hair"]
+]
+
+ATTR_TO_CONTENT_LABEL = {
+    # (male, smiling): content label
+    (1, 1): 0,
+    (1, 0): 1,
+    (0, 1): 2,
+    (0, 0): 3,
+}
+
+ATTR_TO_STYLE_LABEL = {
+    "bold": 0,
+    "black hair": 1,
+    "blond hair": 2,
+    "brown hair": 3,
+    "gray hair": 4,
+}
+
+
+def generate_celeba_labels(attr: torch.Tensor):
+    # get content label
+    content = ATTR_TO_CONTENT_LABEL[
+        (int(attr[ATTR_TO_COLUMN["male"]]), int(attr[ATTR_TO_COLUMN["smiling"]]))
+    ]
+    # get style label
+    style = attr[HAIRCOLOR_IDS].argmax()
+    # argmax will break ties in favor of the first item
+    # so if a person is bold and has other color, he/she will be labeled as bold
+
+    return content, style

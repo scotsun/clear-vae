@@ -284,6 +284,95 @@ class SimpleCNNTrainer(Trainer):
         return auc(all_logits, all_y), accurary(all_logits, all_y)
 
 
+class MLVAETrainer(Trainer):
+    def __init__(
+        self,
+        model: VAE,
+        optimizer: Optimizer,
+        verbose_period: int,
+        device: torch.device,
+        transform=None,
+    ) -> None:
+        super().__init__(model, optimizer, verbose_period, device, transform)
+
+    def _train(self, dataloader: DataLoader, verbose: bool, epoch_id: int):
+        vae = self.model
+        optimizer = self.optimizer
+        device = self.device
+        vae.train()
+        with tqdm(dataloader, unit="batch", disable=not verbose) as bar:
+            bar.set_description(f"epoch {epoch_id}")
+            for batch in bar:
+                X, label = batch[0], batch[1].reshape(-1).long()
+                X, label = X.to(device), label.to(device)
+                if self.transform:
+                    X = self.transform(X)
+                optimizer.zero_grad()
+                X_hat, latent_params = vae(X, label=label)
+
+                _reconstr_loss, _kl_c, _kl_s = vae_loss(X_hat, X, **latent_params)
+
+                loss = _reconstr_loss + _kl_c + _kl_s
+                loss.backward()
+                optimizer.step()
+
+                bar.set_postfix(
+                    reconstr_loss=float(_reconstr_loss),
+                    kl_c=float(_kl_c),
+                    kl_s=float(_kl_s),
+                )
+
+    def _valid(self, dataloader, verbose, epoch_id):
+        if verbose:
+            mig, elbo = self.evaluate(dataloader, verbose, epoch_id)
+            print(f"gMIG: {round(mig, 3)}; elbo: {round(float(elbo), 3)}")
+
+    def evaluate(self, dataloader, verbose, epoch_id):
+        vae: VAE = self.model
+        vae.eval()
+        device = self.device
+        total_reconstr_loss, total_kl_c, total_kl_s = 0, 0, 0
+
+        all_label = []
+        all_latent_c = []
+        all_latent_s = []
+        with torch.no_grad():
+            for batch in tqdm(
+                dataloader, disable=not verbose, desc=f"val-epoch {epoch_id}"
+            ):
+                X, label = batch[0], batch[1].reshape(-1).long()
+                X, label = X.to(device), label.to(device)
+                X_hat, latent_params, z = vae(X, label=label, explicit=True)
+
+                _reconstr_loss, _kl_c, _kl_s = vae_loss(X_hat, X, **latent_params)
+
+                total_reconstr_loss += _reconstr_loss
+                total_kl_c += _kl_c
+                total_kl_s += _kl_s
+
+                all_label.append(label)
+                all_latent_c.append(z[:, : vae.z_dim])
+                all_latent_s.append(z[:, vae.z_dim :])
+        all_label, all_latent_c, all_latent_s = (
+            torch.cat(all_label),
+            torch.cat(all_latent_c),
+            torch.cat(all_latent_s),
+        )
+        mig = mutual_info_gap(all_label, all_latent_c, all_latent_s)
+        elbo = -float(total_reconstr_loss + total_kl_c + total_kl_s) / len(dataloader)
+
+        if verbose:
+            print(
+                "val_recontr_loss={:.3f}, val_kl_c={:.3f}, val_kl_s={:.3f}".format(
+                    total_reconstr_loss / len(dataloader),
+                    total_kl_c / len(dataloader),
+                    total_kl_s / len(dataloader),
+                )
+            )
+
+        return mig, elbo
+
+
 class CDVAETrainer(Trainer):
     def __init__(
         self,
@@ -323,7 +412,7 @@ class CDVAETrainer(Trainer):
                 optimizer.zero_grad()
                 X_hat, latent_params = vae(X)
 
-                _recontr_loss, _kl_c, _kl_s = vae_loss(X_hat, X, **latent_params)
+                _reconstr_loss, _kl_c, _kl_s = vae_loss(X_hat, X, **latent_params)
 
                 _ntxent_loss = snn_loss(
                     mu=latent_params["mu_c"],
@@ -344,7 +433,7 @@ class CDVAETrainer(Trainer):
                     _reverse_ntxent_loss = -_reverse_ntxent_loss
 
                 loss = (
-                    _recontr_loss
+                    _reconstr_loss
                     + annealer(_kl_c)
                     + annealer(_kl_s)
                     + alpha[0] * _ntxent_loss
@@ -356,7 +445,7 @@ class CDVAETrainer(Trainer):
                 annealer.step()
 
                 bar.set_postfix(
-                    recontr_loss=float(_recontr_loss),
+                    recontr_loss=float(_reconstr_loss),
                     kl_c=float(_kl_c),
                     kl_s=float(_kl_s),
                     c_loss=float(_ntxent_loss),
@@ -375,7 +464,7 @@ class CDVAETrainer(Trainer):
         device = self.device
         temperature = self.hyperparameter["temperature"]
         label_flipping = self.hyperparameter["label_flipping"]
-        total_recontr_loss, total_kl_c, total_kl_s, total_c_loss, total_s_loss = (
+        total_reconstr_loss, total_kl_c, total_kl_s, total_c_loss, total_s_loss = (
             0.0,
             0.0,
             0.0,
@@ -414,7 +503,7 @@ class CDVAETrainer(Trainer):
                 if not label_flipping:
                     _reverse_ntxent_loss = -_reverse_ntxent_loss
 
-                total_recontr_loss += _recontr_loss
+                total_reconstr_loss += _recontr_loss
                 total_kl_c += _kl_c
                 total_kl_s += _kl_s
                 total_c_loss += _ntxent_loss
@@ -429,12 +518,12 @@ class CDVAETrainer(Trainer):
             torch.cat(all_latent_s),
         )
         mig = mutual_info_gap(all_label, all_latent_c, all_latent_s)
-        elbo = -float(total_recontr_loss + total_kl_c + total_kl_s) / len(dataloader)
+        elbo = -float(total_reconstr_loss + total_kl_c + total_kl_s) / len(dataloader)
 
         if verbose:
             print(
                 "val_recontr_loss={:.3f}, val_kl_c={:.3f}, val_kl_s={:.3f}, val_c_loss={:.3f}, val_s_loss={:.3f}".format(
-                    total_recontr_loss / len(dataloader),
+                    total_reconstr_loss / len(dataloader),
                     total_kl_c / len(dataloader),
                     total_kl_s / len(dataloader),
                     total_c_loss / len(dataloader),
