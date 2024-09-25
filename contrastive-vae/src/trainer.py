@@ -295,6 +295,13 @@ class MLVAETrainer(Trainer):
     ) -> None:
         super().__init__(model, optimizer, verbose_period, device, transform)
 
+    def _group_adjust(self, B, m, *losses):
+        """
+        B: batch size
+        m: number of groups
+        """
+        return [loss * B / m for loss in losses]
+
     def _train(self, dataloader: DataLoader, verbose: bool, epoch_id: int):
         vae = self.model
         optimizer = self.optimizer
@@ -305,12 +312,17 @@ class MLVAETrainer(Trainer):
             for batch in bar:
                 X, label = batch[0], batch[1].reshape(-1).long()
                 X, label = X.to(device), label.to(device)
+                batch_size, n_groups = X.size(0), len(label.unique())
+
                 if self.transform:
                     X = self.transform(X)
                 optimizer.zero_grad()
                 X_hat, latent_params = vae(X, label=label)
 
                 _reconstr_loss, _kl_c, _kl_s = vae_loss(X_hat, X, **latent_params)
+                _reconstr_loss, _kl_c, _kl_s = self._group_adjust(
+                    batch_size, n_groups, _reconstr_loss, _kl_c, _kl_s
+                )  # the group-wise loss adjust only applies to train
 
                 loss = _reconstr_loss + _kl_c + _kl_s
                 loss.backward()
