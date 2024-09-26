@@ -10,6 +10,7 @@ from src.model import SimpleCNNClassifier, VAE
 from src.trainer import SimpleCNNTrainer, CDVAETrainer, DownstreamMLPTrainer
 
 TAU = 0.1
+SIM = "l2"
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -81,7 +82,7 @@ def experiment(k, seed):
     trainer = CDVAETrainer(
         vae,
         optimizer,
-        sim_fn="cosine",
+        sim_fn=SIM,
         hyperparameter={
             "temperature": TAU,
             "beta": 1 / 8,
@@ -137,7 +138,7 @@ def experiment(k, seed):
 
     print(expr_output)
 
-    fpath = f"./expr_output/cmnist/cls/cmnist-k{k}-{seed}.json"
+    fpath = f"./expr_output/cmnist/cls/l2cmnist-k{k}-{seed}.json"
     with open(fpath, "w") as json_file:
         json.dump(expr_output, json_file, indent=4)
 
