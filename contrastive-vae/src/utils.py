@@ -14,8 +14,9 @@ from corruption_utils import corruptions
 from src.model import VAE
 
 
-def interpolate_latent(latent1, latent2, num_steps, device):
+def interpolate_latent(latent1, latent2, num_steps):
     """Interpolate between two latent vectors."""
+    device = latent1.device
     p = torch.linspace(1, 0, num_steps).to(device)
     # reshape to interpolation matrix shape (num_step, latent_dim)
     latent_dim = latent1.shape[-1]
@@ -34,7 +35,7 @@ def display_util(idx1, idx2, z: torch.Tensor, model: VAE, z_dim, device):
         img2 = transforms.ToPILImage()(model.decode(z2.view(1, -1))[0])
 
         z_inter = interpolate_latent(
-            latent1=z1[z_dim:], latent2=z2[z_dim:], num_steps=11, device=device
+            latent1=z1[z_dim:], latent2=z2[z_dim:], num_steps=11
         )
         z_combined = torch.cat([z1[:z_dim][None, :].repeat(11, 1), z_inter], dim=1)
         x_inter = model.decode(z_combined)
@@ -44,7 +45,7 @@ def display_util(idx1, idx2, z: torch.Tensor, model: VAE, z_dim, device):
         plt.show()
 
         z_inter = interpolate_latent(
-            latent1=z1[:z_dim], latent2=z2[:z_dim], num_steps=11, device=device
+            latent1=z1[:z_dim], latent2=z2[:z_dim], num_steps=11
         )
         z_combined = torch.cat([z_inter, z1[z_dim:][None, :].repeat(11, 1)], dim=1)
         x_inter = model.decode(z_combined)

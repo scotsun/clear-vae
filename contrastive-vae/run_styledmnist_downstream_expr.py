@@ -4,7 +4,7 @@ import torchvision
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader, random_split
 import json
-from expr.expr_util import generate_style_dict, KStyledMNISTGenerator, KStyledMNIST
+from expr.expr_utils import generate_style_dict, KStyledMNISTGenerator, KStyledMNIST
 from corruption_utils import corruptions
 from src.model import SimpleCNNClassifier, VAE
 from src.trainer import SimpleCNNTrainer, CDVAETrainer, DownstreamMLPTrainer
