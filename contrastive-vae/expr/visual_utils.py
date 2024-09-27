@@ -1,8 +1,10 @@
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 from torchvision.utils import make_grid
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+from sklearn.manifold import TSNE
 
 from src.model import VAE
 from src.utils import interpolate_latent
@@ -122,3 +124,58 @@ def interpolation_plot(
         plt.show()
 
         return
+
+
+def _tsne_plot(tsne_2d, class_labels, classes):
+    cmap = plt.get_cmap("viridis")
+    colors = [cmap(i) for i in np.linspace(0, 1, len(classes))]
+    _, ax = plt.subplots()
+    for g in range(len(classes)):
+        i = np.where(class_labels == g)[0]
+        ax.scatter(
+            tsne_2d[i, 0], tsne_2d[i, 1], alpha=0.2, c=colors[g], label=classes[g]
+        )
+    ax.legend()
+    plt.show()
+
+
+def tsne_plot(
+    dataloader: DataLoader,
+    vae: VAE,
+    device: torch.device,
+    content_labels=None,
+    style_labels=None,
+):
+    mu_cs, mu_ss, labels, styles = [], [], [], []
+    with torch.no_grad():
+        for X, c, s in tqdm(dataloader):
+            X = X.to(device)
+            _, latent_params = vae(X)
+            mu_cs.append(latent_params["mu_c"])
+            mu_ss.append(latent_params["mu_s"])
+            labels.append(c)
+            styles.append(s)
+
+    mu_cs, mu_ss, labels, styles = (
+        torch.cat(mu_cs, dim=0),
+        torch.cat(mu_ss, dim=0),
+        torch.cat(labels, dim=0),
+        torch.cat(styles, dim=0),
+    )
+
+    if content_labels is None:
+        content_labels = list(range(labels.max().item() + 1))
+    if style_labels is None:
+        style_labels = list(range(styles.max().item() + 1))
+
+    tsne_c = TSNE(n_components=2, perplexity=30, learning_rate=200, init="pca")
+    mu_cs_tsne = tsne_c.fit_transform(mu_cs.cpu().numpy())
+    _tsne_plot(mu_cs_tsne, labels.cpu().numpy(), content_labels)
+    _tsne_plot(mu_cs_tsne, styles.cpu().numpy(), style_labels)
+
+    tsne_s = TSNE(n_components=2, perplexity=30, learning_rate=200, init="pca")
+    mu_ss_tsne = tsne_s.fit_transform(mu_ss.cpu().numpy())
+    _tsne_plot(mu_ss_tsne, styles.cpu().numpy(), content_labels)
+    _tsne_plot(mu_ss_tsne, labels.cpu().numpy(), style_labels)
+
+    return
