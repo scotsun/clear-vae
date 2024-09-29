@@ -7,10 +7,16 @@ import json
 from expr.expr_utils import generate_style_dict, KStyledMNISTGenerator, KStyledMNIST
 from corruption_utils import corruptions
 from src.model import SimpleCNNClassifier, VAE
-from src.trainer import SimpleCNNTrainer, CLEARVAETrainer, DownstreamMLPTrainer
+from src.trainer import (
+    SimpleCNNTrainer,
+    MLVAETrainer,
+    CLEARVAETrainer,
+    DownstreamMLPTrainer,
+)
 
 TAU = 0.1
-SIM = "l2"
+SIM = "cosine"
+EPOCHS = 41
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -71,12 +77,38 @@ def experiment(k, seed):
     trainer = SimpleCNNTrainer(
         cnn, optimizer, criterion, verbose_period=5, device=device
     )
-    trainer.fit(epochs=41, train_loader=train_loader, valid_loader=valid_loader)
+    trainer.fit(epochs=EPOCHS, train_loader=train_loader, valid_loader=valid_loader)
     (cnn_aupr_scores, cnn_auroc_scores), cnn_acc = trainer.evaluate(
         test_loader, False, 0
     )
-
-    # vae+mlp pipeline
+    # ml-vae+mlp pipeline
+    vae = VAE(total_z_dim=16).to(device)
+    optimizer = torch.optim.Adam(vae.parameters(), lr=1e-3)
+    trainer = MLVAETrainer(
+        vae,
+        optimizer,
+        hyperparameter={"beta": 1 / 8, "loc": 0, "scale": 1},
+        verbose_period=5,
+        device=device,
+    )
+    trainer.fit(EPOCHS, train_loader, valid_loader, with_evidence_acc=False)
+    vae.eval()
+    for p in vae.parameters():
+        p.requires_grad = False
+    mlp = torch.nn.Sequential(
+        torch.nn.Linear(8, 256),
+        torch.nn.BatchNorm1d(256),
+        torch.nn.ReLU(),
+        torch.nn.Linear(256, 10),
+    ).to(device)
+    optimizer = torch.optim.Adam(mlp.parameters(), lr=3e-4)
+    criterion = torch.nn.CrossEntropyLoss()
+    trainer = DownstreamMLPTrainer(vae, mlp, optimizer, criterion, 10, device)
+    trainer.fit(EPOCHS, train_loader, valid_loader)
+    (mlvae_aupr_scores, mlvae_auroc_scores), mlvae_acc = trainer.evaluate(
+        test_loader, False, 0
+    )
+    # clear-vae+mlp pipeline
     vae = VAE(total_z_dim=16).to(device)
     optimizer = torch.optim.Adam(vae.parameters(), lr=1e-3)
     trainer = CLEARVAETrainer(
@@ -94,7 +126,7 @@ def experiment(k, seed):
         verbose_period=5,
         device=device,
     )
-    trainer.fit(41, train_loader, valid_loader)
+    trainer.fit(EPOCHS, train_loader, valid_loader)
     vae.eval()
     for p in vae.parameters():
         p.requires_grad = False
@@ -107,8 +139,8 @@ def experiment(k, seed):
     optimizer = torch.optim.Adam(mlp.parameters(), lr=3e-4)
     criterion = torch.nn.CrossEntropyLoss()
     trainer = DownstreamMLPTrainer(vae, mlp, optimizer, criterion, 10, device)
-    trainer.fit(41, train_loader, valid_loader)
-    (mlp_aupr_scores, mlp_auroc_scores), mlp_acc = trainer.evaluate(
+    trainer.fit(EPOCHS, train_loader, valid_loader)
+    (clearvae_aupr_scores, clearvae_auroc_scores), clearvae_acc = trainer.evaluate(
         test_loader, False, 0
     )
 
@@ -124,21 +156,32 @@ def experiment(k, seed):
             "stratified": cnn_auroc_scores,
         },
     }
-    expr_output["vae + mlp"] = {
-        "acc": round(float(mlp_acc), 3),
+    expr_output["ml-vae + mlp"] = {
+        "acc": round(float(mlvae_acc), 3),
         "pr": {
-            "overall": np.mean(list(mlp_aupr_scores.values())).round(3),
-            "stratified": mlp_aupr_scores,
+            "overall": np.mean(list(mlvae_aupr_scores.values())).round(3),
+            "stratified": mlvae_aupr_scores,
         },
         "roc": {
-            "overall": np.mean(list(mlp_auroc_scores.values())).round(3),
-            "stratified": mlp_auroc_scores,
+            "overall": np.mean(list(mlvae_auroc_scores.values())).round(3),
+            "stratified": mlvae_auroc_scores,
+        },
+    }
+    expr_output["clear-vae + mlp"] = {
+        "acc": round(float(clearvae_acc), 3),
+        "pr": {
+            "overall": np.mean(list(clearvae_aupr_scores.values())).round(3),
+            "stratified": clearvae_aupr_scores,
+        },
+        "roc": {
+            "overall": np.mean(list(clearvae_auroc_scores.values())).round(3),
+            "stratified": clearvae_auroc_scores,
         },
     }
 
     print(expr_output)
 
-    fpath = f"./expr_output/cmnist/cls/l2cmnist-k{k}-{seed}.json"
+    fpath = f"./expr_output/cmnist/classification/cmnist-k{k}-{seed}.json"
     with open(fpath, "w") as json_file:
         json.dump(expr_output, json_file, indent=4)
 

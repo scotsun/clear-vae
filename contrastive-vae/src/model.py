@@ -19,7 +19,12 @@ class SimpleCNNClassifier(nn.Module):
             nn.ReLU(),
             nn.Flatten(),
         )
-        self.clf_head = nn.Linear(2048, n_class)
+        self.clf_head = nn.Sequential(
+            nn.Linear(2048, 256),
+            torch.nn.BatchNorm1d(256),
+            torch.nn.ReLU(),
+            torch.nn.Linear(256, 10),
+        )
 
     def forward(self, x):
         h = self.net(x)
@@ -82,7 +87,7 @@ class VAE(nn.Module):
         self, mu_c, logvar_c, mu_s, logvar_s, g_dict: dict | None = None, explicit=False
     ):
         """
-        label: if provided the VAE -> ML-VAE
+        g_dict: if provided the VAE -> ML-VAE
         explicit: bool indicating if return generated latent z
         """
         if g_dict is None:
