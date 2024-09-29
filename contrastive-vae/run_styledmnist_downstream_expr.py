@@ -65,6 +65,7 @@ def get_data_splits(k: int, seed: int):
 
 
 def experiment(k, seed):
+    print(seed)
     style_dict, train, valid, test = get_data_splits(k=k, seed=seed)
     train_loader = DataLoader(train, batch_size=128, shuffle=True)
     valid_loader = DataLoader(valid, batch_size=128, shuffle=False)
