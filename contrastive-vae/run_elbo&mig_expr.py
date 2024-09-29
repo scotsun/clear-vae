@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader, random_split
 import torchvision
 from torchvision import transforms
 from src.model import VAE
-from src.trainer import CDVAETrainer
+from src.trainer import CLEARVAETrainer, MLVAETrainer
 from src.utils import StyledMNISTGenerator, StyledMNIST
 from corruption_utils import corruptions
 
@@ -58,10 +58,27 @@ def get_data(seed):
     return train, valid, test
 
 
-def get_model_trainer(beta, label_flipping, z_dim, alpha, temperature, device):
+def get_mlvae_trainer(beta, z_dim, device):
     vae = VAE(total_z_dim=z_dim).to(device)
     optimizer = torch.optim.Adam(vae.parameters(), lr=5e-4)
-    trainer = CDVAETrainer(
+    trainer = MLVAETrainer(
+        vae,
+        optimizer,
+        hyperparameter={
+            "beta": beta,
+            "scale": 1,
+            "loc": 0,
+        },
+        verbose_period=5,
+        device=device,
+    )
+    return trainer
+
+
+def get_clearvae_trainer(beta, label_flipping, z_dim, alpha, temperature, device):
+    vae = VAE(total_z_dim=z_dim).to(device)
+    optimizer = torch.optim.Adam(vae.parameters(), lr=5e-4)
+    trainer = CLEARVAETrainer(
         vae,
         optimizer,
         sim_fn="cosine",
@@ -82,7 +99,7 @@ def get_model_trainer(beta, label_flipping, z_dim, alpha, temperature, device):
 def _main_helper(
     mig_list: list,
     elbo_list: list,
-    trainer: CDVAETrainer,
+    trainer: CLEARVAETrainer,
     train_loader: DataLoader,
     valid_loader: DataLoader,
     test_loader: DataLoader,
@@ -96,6 +113,24 @@ def _main_helper(
     return
 
 
+def _main_helper_mlvae(
+    mig_list: list,
+    elbo_list: list,
+    trainer: MLVAETrainer,
+    train_loader: DataLoader,
+    valid_loader: DataLoader,
+    test_loader: DataLoader,
+    epochs: int,
+    with_evidence_acc: bool,
+):
+    trainer.fit(epochs, train_loader, valid_loader, with_evidence_acc=True)
+    print("")
+    mig, elbo = trainer.evaluate(test_loader, False, 0, with_evidence_acc)
+    mig_list.append(mig)
+    elbo_list.append(elbo)
+    return
+
+
 def main():
     args = get_args()
     train, valid, test = get_data(args.seed)
@@ -103,7 +138,7 @@ def main():
     valid_loader = DataLoader(valid, batch_size=128, shuffle=False)
     test_loader = DataLoader(test, batch_size=128, shuffle=False)
 
-    model_kwargs = {
+    hyperparam_kwargs = {
         "z_dim": args.z_dim,
         "alpha": args.alpha,
         "temperature": args.temperature,
@@ -116,34 +151,58 @@ def main():
         "epochs": 31,
     }
 
-    lf_migs, nlf_migs, bvae_migs = [], [], []
-    lf_elbos, nlf_elbos, bvae_elbos = [], [], []
+    ps_migs, nps_migs, bvae_migs, ml_acc_migs, ml_nacc_migs = [], [], [], [], []
+    ps_elbos, nps_elbos, bvae_elbos, ml_acc_elbos, ml_nacc_elbos = [], [], [], [], []
     # iterate all beta
     for beta in BETAS:
-        model_kwargs["alpha"] = args.alpha
-        lf_trainer = get_model_trainer(beta=beta, label_flipping=True, **model_kwargs)
-        nlf_trainer = get_model_trainer(beta=beta, label_flipping=False, **model_kwargs)
+        hyperparam_kwargs["alpha"] = args.alpha
+        ps_trainer = get_clearvae_trainer(
+            beta=beta, label_flipping=True, **hyperparam_kwargs
+        )
+        nps_trainer = get_clearvae_trainer(
+            beta=beta, label_flipping=False, **hyperparam_kwargs
+        )
+        bvae_hyperparam_kwargs = hyperparam_kwargs.copy()
+        bvae_hyperparam_kwargs["alpha"] = 0
+        bvae_trainer = get_clearvae_trainer(
+            beta=beta, label_flipping=None, **bvae_hyperparam_kwargs
+        )
+        ml_acc_trainer = get_mlvae_trainer(
+            beta=beta, z_dim=args.z_dim, device=args.device
+        )
+        ml_nacc_trainer = get_mlvae_trainer(
+            beta=beta, z_dim=args.z_dim, device=args.device
+        )
 
-        model_kwargs["alpha"] = 0
-        bvae_trainer = get_model_trainer(beta=beta, label_flipping=None, **model_kwargs)
-
-        _main_helper(lf_migs, lf_elbos, lf_trainer, **trainer_kwargs)
-        _main_helper(nlf_migs, nlf_elbos, nlf_trainer, **trainer_kwargs)
+        _main_helper(ps_migs, ps_elbos, ps_trainer, **trainer_kwargs)
+        _main_helper(nps_migs, nps_elbos, nps_trainer, **trainer_kwargs)
         _main_helper(bvae_migs, bvae_elbos, bvae_trainer, **trainer_kwargs)
+        ml_acc_trainer_kwargs = trainer_kwargs.copy()
+        ml_acc_trainer_kwargs["with_evidence_acc"] = True
+        _main_helper_mlvae(
+            ml_acc_migs, ml_acc_elbos, ml_acc_trainer, **ml_acc_trainer_kwargs
+        )
+        ml_nacc_trainer_kwargs = trainer_kwargs.copy()
+        ml_nacc_trainer_kwargs["with_evidence_acc"] = False
+        _main_helper_mlvae(
+            ml_nacc_migs, ml_nacc_elbos, ml_nacc_trainer, **ml_nacc_trainer_kwargs
+        )
 
     # save as csv
     df_mig_elbo = pd.DataFrame(
         {
-            "model": ["lf" for _ in range(len(BETAS))]
-            + ["nlf" for _ in range(len(BETAS))]
-            + ["bvae" for _ in range(len(BETAS))],
-            "beta": BETAS * 3,
-            "mig": lf_migs + nlf_migs + bvae_migs,
-            "elbo": lf_elbos + nlf_elbos + bvae_elbos,
+            "model": ["ps" for _ in range(len(BETAS))]
+            + ["nps" for _ in range(len(BETAS))]
+            + ["bvae" for _ in range(len(BETAS))]
+            + ["ml_acc" for _ in range(len(BETAS))]
+            + ["ml_nacc" for _ in range(len(BETAS))],
+            "beta": BETAS * 5,
+            "mig": ps_migs + nps_migs + bvae_migs + ml_acc_migs + ml_nacc_migs,
+            "elbo": ps_elbos + nps_elbos + bvae_elbos + ml_acc_elbos + ml_nacc_elbos,
         }
     )
     df_mig_elbo.to_csv(
-        f"./expr_output/ckmnist/mig_elbo_s{args.seed}_a{args.alpha}_z{args.z_dim}_t{args.temperature}.csv",
+        f"./expr_output/cmnist/mig_elbo_s{args.seed}_a{args.alpha}_z{args.z_dim}_t{args.temperature}.csv",
         index=False,
     )
 

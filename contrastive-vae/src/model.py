@@ -100,7 +100,7 @@ class VAE(nn.Module):
     def forward(self, x, label=None, explicit=False) -> tuple:
         mu_c, logvar_c, mu_s, logvar_s = self.encode(x)
 
-        if label is not None:  # if label is provided we have a grouping dict
+        if label is not None:  # if label is provided, then we have a grouping dict
             mu_c, logvar_c, g_dict = accumulate_group_evidence(mu_c, logvar_c, label)
         else:  # else we do not have a grouping dict
             g_dict = None
@@ -157,6 +157,7 @@ def groupwise_reparam_each(mu_acc_grp, logvar_acc_grp, g_idx: dict):
         n = len(idx)
         if n == 0:  # skip for empty class
             pass
+        # eps = torch.randn(1, std_acc_grp.size(1)).repeat(n, 1).to(device)
         eps = torch.randn(n, std_acc_grp.size(1)).to(device)
         z_grp = mu_acc_grp[i][None, :] + eps * std_acc_grp[i][None, :]
 

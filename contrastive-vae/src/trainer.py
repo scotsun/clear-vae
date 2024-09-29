@@ -8,7 +8,6 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from src.losses import (
     vae_loss,
-    contrastive_loss,
     snn_loss,
     auc,
     accurary,
@@ -71,77 +70,6 @@ class Trainer:
 
     def _valid(self, **kwarg):
         pass
-
-
-class CDTrainer(Trainer):
-    def __init__(
-        self,
-        model: nn.Module,
-        optimizer: Optimizer,
-        verbose_period: int,
-        fully_supervised: bool,
-        device: torch.device,
-    ) -> None:
-        super().__init__(model, optimizer, verbose_period, device)
-        self.fully_supervised = fully_supervised
-
-    def _train(self, dataloader: DataLoader, verbose: bool, epoch_id: int):
-        self.model.train()
-        device = self.device
-        vae = self.model
-        with tqdm(dataloader, unit="batch", mininterval=0, disable=not verbose) as bar:
-            bar.set_description(f"Epoch {epoch_id}")
-            for Xb, Xp, label_c, label_s in bar:
-                self.optimizer.zero_grad()
-                Xb = Xb.to(device)
-                Xp = Xp.to(device)
-                label_c = label_c.to(device)
-                label_s = label_s.to(device)
-
-                Xb_hat, latent_params_b = vae(Xb)
-                Xp_hat, latent_params_p = vae(Xp)
-
-                vae_b_loss = vae_loss(Xb_hat, Xb, **latent_params_b)
-                vae_p_loss = vae_loss(Xp_hat, Xp, **latent_params_p)
-                contrastive_c = contrastive_loss(
-                    label_c,
-                    latent_params_b["mu_c"],
-                    latent_params_p["mu_c"],
-                    latent_params_b["logvar_c"],
-                    latent_params_p["logvar_c"],
-                )
-
-                if self.fully_supervised:  # fully supervised for style match/mismatch
-                    contrastive_s = contrastive_loss(
-                        label_s,
-                        latent_params_b["mu_s"],
-                        latent_params_p["mu_s"],
-                        latent_params_b["logvar_s"],
-                        latent_params_p["logvar_s"],
-                        m=20,
-                    )
-                else:
-                    contrastive_s = 0
-
-                loss = vae_b_loss + vae_p_loss + contrastive_c + contrastive_s
-
-                loss.backward()
-                self.optimizer.step()
-
-                if self.fully_supervised:
-                    bar.set_postfix(
-                        vae_b_loss=float(vae_b_loss),
-                        vae_p_loss=float(vae_p_loss),
-                        contrastive_c=float(contrastive_c),
-                        contrastive_s=float(contrastive_s),
-                    )
-                else:
-                    bar.set_postfix(
-                        vae_b_loss=float(vae_b_loss),
-                        vae_p_loss=float(vae_p_loss),
-                        contrastive_c=float(contrastive_c),
-                    )
-        return
 
 
 class DownstreamMLPTrainer(Trainer):
@@ -289,22 +217,40 @@ class MLVAETrainer(Trainer):
         self,
         model: VAE,
         optimizer: Optimizer,
+        hyperparameter: dict[str, float],
         verbose_period: int,
         device: torch.device,
         transform=None,
     ) -> None:
         super().__init__(model, optimizer, verbose_period, device, transform)
+        self.hyperparameter = hyperparameter
+        self.annealer = LogisticAnnealer(
+            loc=hyperparameter["loc"],
+            scale=hyperparameter["scale"],
+            beta=hyperparameter["beta"],
+        )
+
+    def fit(
+        self,
+        epochs: int,
+        train_loader: DataLoader,
+        valid_loader: None | DataLoader = None,
+        with_evidence_acc: bool = False,
+    ):
+        for epoch in range(epochs):
+            verbose = (epoch % self.verbose_period) == 0
+            self._train(train_loader, verbose, epoch)
+            if valid_loader is not None:
+                self._valid(valid_loader, verbose, epoch, with_evidence_acc)
 
     def _group_adjust(self, B, m, *losses):
-        """
-        B: batch size
-        m: number of groups
-        """
+        "B: batch size; m: number of groups"
         return [loss * B / m for loss in losses]
 
     def _train(self, dataloader: DataLoader, verbose: bool, epoch_id: int):
         vae = self.model
         optimizer = self.optimizer
+        annealer = self.annealer
         device = self.device
         vae.train()
         with tqdm(dataloader, unit="batch", disable=not verbose) as bar:
@@ -320,13 +266,15 @@ class MLVAETrainer(Trainer):
                 X_hat, latent_params = vae(X, label=label)
 
                 _reconstr_loss, _kl_c, _kl_s = vae_loss(X_hat, X, **latent_params)
-                _reconstr_loss, _kl_c, _kl_s = self._group_adjust(
-                    batch_size, n_groups, _reconstr_loss, _kl_c, _kl_s
+                _reconstr_loss, _kl_s = self._group_adjust(
+                    batch_size, n_groups, _reconstr_loss, _kl_s
                 )  # the group-wise loss adjust only applies to train
 
-                loss = _reconstr_loss + _kl_c + _kl_s
+                loss = _reconstr_loss + annealer(_kl_c) + annealer(_kl_s)
+
                 loss.backward()
                 optimizer.step()
+                annealer.step()
 
                 bar.set_postfix(
                     reconstr_loss=float(_reconstr_loss),
@@ -334,12 +282,12 @@ class MLVAETrainer(Trainer):
                     kl_s=float(_kl_s),
                 )
 
-    def _valid(self, dataloader, verbose, epoch_id):
+    def _valid(self, dataloader, verbose, epoch_id, with_evidence_acc=False):
         if verbose:
-            mig, elbo = self.evaluate(dataloader, verbose, epoch_id)
+            mig, elbo = self.evaluate(dataloader, verbose, epoch_id, with_evidence_acc)
             print(f"gMIG: {round(mig, 3)}; elbo: {round(float(elbo), 3)}")
 
-    def evaluate(self, dataloader, verbose, epoch_id):
+    def evaluate(self, dataloader, verbose, epoch_id, with_evidence_acc):
         vae: VAE = self.model
         vae.eval()
         device = self.device
@@ -354,7 +302,10 @@ class MLVAETrainer(Trainer):
             ):
                 X, label = batch[0], batch[1].reshape(-1).long()
                 X, label = X.to(device), label.to(device)
-                X_hat, latent_params, z = vae(X, label=label, explicit=True)
+                if with_evidence_acc:
+                    X_hat, latent_params, z = vae(X, label, explicit=True)
+                else:
+                    X_hat, latent_params, z = vae(X, explicit=True)
 
                 _reconstr_loss, _kl_c, _kl_s = vae_loss(X_hat, X, **latent_params)
 
@@ -385,7 +336,7 @@ class MLVAETrainer(Trainer):
         return mig, elbo
 
 
-class CDVAETrainer(Trainer):
+class CLEARVAETrainer(Trainer):
     def __init__(
         self,
         model: VAE,

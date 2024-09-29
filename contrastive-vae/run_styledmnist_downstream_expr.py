@@ -7,7 +7,7 @@ import json
 from expr.expr_utils import generate_style_dict, KStyledMNISTGenerator, KStyledMNIST
 from corruption_utils import corruptions
 from src.model import SimpleCNNClassifier, VAE
-from src.trainer import SimpleCNNTrainer, CDVAETrainer, DownstreamMLPTrainer
+from src.trainer import SimpleCNNTrainer, CLEARVAETrainer, DownstreamMLPTrainer
 
 TAU = 0.1
 SIM = "l2"
@@ -79,7 +79,7 @@ def experiment(k, seed):
     # vae+mlp pipeline
     vae = VAE(total_z_dim=16).to(device)
     optimizer = torch.optim.Adam(vae.parameters(), lr=1e-3)
-    trainer = CDVAETrainer(
+    trainer = CLEARVAETrainer(
         vae,
         optimizer,
         sim_fn=SIM,

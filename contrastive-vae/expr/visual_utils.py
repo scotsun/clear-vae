@@ -26,7 +26,7 @@ def make_colored_grid(imgs, nrow, color: str):
     return grid
 
 
-def feature_swapping_plot(z_c, z_s, X, vae: torch.nn.Module):
+def feature_swapping_plot(z_c, z_s, X, vae: torch.nn.Module, img_size=28):
     with torch.no_grad():
         n = z_c.size(0)
         z_dim = z_c.size(1) + z_s.size(1)
@@ -43,7 +43,9 @@ def feature_swapping_plot(z_c, z_s, X, vae: torch.nn.Module):
 
         final_grid = torch.cat(
             [
-                torch.cat([torch.ones(3, 32, 32).cuda(), vgrid], dim=1),
+                torch.cat(
+                    [torch.ones(3, img_size + 4, img_size + 4).cuda(), vgrid], dim=1
+                ),
                 torch.cat([hgrid, maingrid], dim=1),
             ],
             dim=-1,
