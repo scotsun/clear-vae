@@ -71,6 +71,7 @@ def experiment(k, seed):
     test_loader = DataLoader(test, batch_size=128, shuffle=False)
 
     # cnn pipeline
+    print("baseline:")
     cnn = SimpleCNNClassifier(n_class=10).to(device)
     optimizer = torch.optim.Adam(cnn.parameters(), lr=1e-4)
     criterion = torch.nn.CrossEntropyLoss()
@@ -81,7 +82,9 @@ def experiment(k, seed):
     (cnn_aupr_scores, cnn_auroc_scores), cnn_acc = trainer.evaluate(
         test_loader, False, 0
     )
+    print()
     # ml-vae+mlp pipeline
+    print("mlvae:")
     vae = VAE(total_z_dim=16).to(device)
     optimizer = torch.optim.Adam(vae.parameters(), lr=1e-3)
     trainer = MLVAETrainer(
@@ -108,7 +111,9 @@ def experiment(k, seed):
     (mlvae_aupr_scores, mlvae_auroc_scores), mlvae_acc = trainer.evaluate(
         test_loader, False, 0
     )
+    print()
     # clear-vae+mlp pipeline
+    print("clear-vae:")
     vae = VAE(total_z_dim=16).to(device)
     optimizer = torch.optim.Adam(vae.parameters(), lr=1e-3)
     trainer = CLEARVAETrainer(
@@ -143,7 +148,7 @@ def experiment(k, seed):
     (clearvae_aupr_scores, clearvae_auroc_scores), clearvae_acc = trainer.evaluate(
         test_loader, False, 0
     )
-
+    print()
     expr_output = dict()
     expr_output["cnn"] = {
         "acc": round(float(cnn_acc), 3),
