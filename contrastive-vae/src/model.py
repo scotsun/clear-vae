@@ -23,12 +23,35 @@ class SimpleCNNClassifier(nn.Module):
             nn.Linear(2048, 256),
             torch.nn.BatchNorm1d(256),
             torch.nn.ReLU(),
-            torch.nn.Linear(256, 10),
+            torch.nn.Linear(256, n_class),
         )
 
     def forward(self, x):
         h = self.net(x)
         return self.clf_head(h)
+
+
+class SimpleCNN64Classifier(SimpleCNNClassifier):
+    def __init__(self, n_class: int = 4, in_channel: int = 3) -> None:
+        super().__init__(n_class, in_channel)
+        self.net = nn.Sequential(
+            nn.Conv2d(in_channel, 32, 4, 2, 1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+            nn.Conv2d(32, 64, 4, 2, 1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            nn.Conv2d(64, 128, 4, 2, 1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.Conv2d(128, 256, 4, 2, 1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(),
+            nn.Conv2d(256, 512, 4, 2, 1),
+            nn.BatchNorm2d(512),
+            nn.ReLU(),
+            nn.Flatten(),
+        )
 
 
 class VAE(nn.Module):
@@ -122,6 +145,58 @@ class VAE(nn.Module):
         else:
             xhat = self.generate(mu_c, logvar_c, mu_s, logvar_s, g_dict, False)
             return xhat, latent_params
+
+
+class VAE64(VAE):
+    def __init__(self, total_z_dim, in_channel: int = 3) -> None:
+        super().__init__(total_z_dim=total_z_dim, in_channel=in_channel)
+
+        self.z_dim = int(total_z_dim / 2)
+        # encoder
+        self.encoder = nn.Sequential(
+            nn.Conv2d(in_channel, 32, 4, 2, 1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+            nn.Conv2d(32, 64, 4, 2, 1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            nn.Conv2d(64, 128, 4, 2, 1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.Conv2d(128, 256, 4, 2, 1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(),
+            nn.Conv2d(256, 512, 4, 2, 1),
+            nn.BatchNorm2d(512),
+            nn.ReLU(),
+            nn.Flatten(),
+        )
+        self.mu_c = nn.Linear(2048, self.z_dim)
+        self.logvar_c = nn.Linear(2048, self.z_dim)
+        self.mu_s = nn.Linear(2048, self.z_dim)
+        self.logvar_s = nn.Linear(2048, self.z_dim)
+        # decoder
+        self.decoder = nn.Sequential(
+            nn.Linear(self.z_dim * 2, 2048),
+            nn.BatchNorm1d(2048),
+            nn.ReLU(),
+            nn.Unflatten(1, (512, 2, 2)),
+            nn.ConvTranspose2d(512, 256, 4, 2, 1, 0),
+            nn.BatchNorm2d(256),
+            nn.ReLU(),
+            nn.ConvTranspose2d(256, 128, 4, 2, 1, 0),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.ConvTranspose2d(128, 64, 4, 2, 1, 0),
+            nn.BatchNorm2d(64),
+            nn.ReLU(),
+            nn.ConvTranspose2d(64, 32, 4, 2, 1, 0),
+            nn.BatchNorm2d(32),
+            nn.ReLU(),
+            nn.ConvTranspose2d(32, in_channel, 4, 2, 1, 0),
+            nn.BatchNorm2d(in_channel),
+            nn.Sigmoid(),
+        )
 
 
 def accumulate_group_evidence(

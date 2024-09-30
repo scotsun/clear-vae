@@ -1,6 +1,6 @@
 # run styled-mnist expr
 
-for ($i = 0; $i -lt 9; $i++) {
+for ($i = 0; $i -lt 10; $i++) {
     Write-Host "Running expr $i`n"
     python run_styledmnist_downstream_expr.py
     Write-Host "Complete expr $i`n"
