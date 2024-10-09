@@ -1,3 +1,3 @@
-# imbalanced-and-missing
+# Contrastive LEarning with Anti-contrastive Regularization (CLEAR)
  
- Applying simple MoE and VAE on MNIST and other toy datasets.
+This repository contains the code for the paper: CLEAR
