@@ -190,6 +190,7 @@ def experiment(k, seed):
     fpath = f"./expr_output/cmnist/classification/cmnist-k{k}-{seed}.json"
     with open(fpath, "w") as json_file:
         json.dump(expr_output, json_file, indent=4)
+    return
 
 
 def main():
