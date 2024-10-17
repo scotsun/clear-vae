@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 
 
@@ -6,17 +7,17 @@ class Generator(nn.Module):
         super().__init__()
         self.z_dim = z_dim
         self.G = nn.Sequential(
-            nn.ConvTranspose2d(z_dim, 64, kernel_size=7, stride=1, padding=0),
+            nn.ConvTranspose2d(z_dim, 1024, kernel_size=1, stride=1, bias=False),
+            nn.BatchNorm2d(1024),
+            nn.ReLU(),
+            nn.ConvTranspose2d(1024, 128, kernel_size=7, stride=1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.ReLU(),
+            nn.ConvTranspose2d(128, 64, kernel_size=4, stride=2, padding=1, bias=False),
             nn.BatchNorm2d(64),
             nn.ReLU(),
-            nn.ConvTranspose2d(64, 32, kernel_size=4, stride=2, padding=1),
-            nn.BatchNorm2d(32),
-            nn.ReLU(),
-            nn.ConvTranspose2d(32, 16, kernel_size=4, stride=2, padding=1),
-            nn.BatchNorm2d(16),
-            nn.ReLU(),
-            nn.ConvTranspose2d(16, 1, kernel_size=3, stride=1, padding=1),
-            nn.Tanh(),
+            nn.ConvTranspose2d(64, 1, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.Sigmoid(),
         )
 
     def forward(self, z):
@@ -24,33 +25,55 @@ class Generator(nn.Module):
 
 
 class Discriminator(nn.Module):
-    def __init__(self):
+    def __init__(self, gan_type: str = "least-square"):
         super().__init__()
-        self.D = nn.Sequential(
-            nn.Conv2d(1, 32, kernel_size=3, stride=2, padding=1),
-            nn.BatchNorm2d(32),
+        self.gan_type = gan_type
+        self.enc = nn.Sequential(
+            nn.Conv2d(1, 64, kernel_size=4, stride=2, padding=1),
             nn.LeakyReLU(0.1),
-            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),
-            nn.BatchNorm2d(64),
-            nn.LeakyReLU(0.1),
-            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1),
+            nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(128),
             nn.LeakyReLU(0.1),
-            nn.Flatten(),
+            nn.Conv2d(128, 1024, kernel_size=3, stride=2, padding=1),
+            nn.BatchNorm2d(1024),
+            nn.LeakyReLU(0.1),
         )
-        self.dhead = nn.Sequential(
-            nn.Linear(2048, 1),
-            nn.Sigmoid(),
+        self.dhead = nn.Conv2d(1024, 1, 1)
+
+    def forward(self, x):
+        match self.gan_type:
+            case "vanilla":
+                return torch.sigmoid(self.dhead(self.enc(x)))
+            case "least-square":
+                return self.dhead(self.enc(x))
+            case "wasserstein":
+                return self.dhead(self.enc(x))
+            case _:
+                raise NotImplementedError(f"{self.gan_type} is not implemented")
+
+
+class Encoder(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.enc = nn.Sequential(
+            nn.Conv2d(1, 64, kernel_size=4, stride=2, padding=1),
+            nn.LeakyReLU(0.1),
+            nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(0.1),
+            nn.Conv2d(128, 1024, kernel_size=7, stride=1),
+            nn.BatchNorm2d(1024),
+            nn.LeakyReLU(0.1),
         )
 
     def forward(self, x):
-        return self.dhead(self.D(x))
+        return self.enc(x)
 
 
-class WassersteinDiscriminator(nn.Module):
+class WassersteinEncoder(nn.Module):
     def __init__(self):
         super().__init__()
-        self.wD = nn.Sequential(
+        self.enc = nn.Sequential(
             nn.Conv2d(1, 32, kernel_size=3, stride=2, padding=1),
             nn.InstanceNorm2d(32, affine=True),
             nn.LeakyReLU(0.1),
@@ -62,27 +85,6 @@ class WassersteinDiscriminator(nn.Module):
             nn.LeakyReLU(0.1),
             nn.Flatten(),
         )
-        self.dhead = nn.Linear(2048, 1)
-
-    def forward(self, x):
-        return self.dhead(self.wD(x))
-
-
-class Encoder(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.enc = nn.Sequential(
-            nn.Conv2d(1, 32, kernel_size=3, stride=2, padding=1),
-            nn.BatchNorm2d(32),
-            nn.LeakyReLU(0.1),
-            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),
-            nn.BatchNorm2d(64),
-            nn.LeakyReLU(0.1),
-            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1),
-            nn.BatchNorm2d(128),
-            nn.LeakyReLU(0.1),
-            nn.Flatten(),
-        )
 
     def forward(self, x):
         return self.enc(x)
@@ -91,24 +93,22 @@ class Encoder(nn.Module):
 class DHead(nn.Module):
     def __init__(self) -> None:
         super().__init__()
-        self.dhead = nn.Sequential(
-            nn.Linear(2048, 1),
-            nn.Sigmoid(),
-        )
+        self.dhead = nn.Conv2d(1024, 1, 1)
 
     def forward(self, h):
-        return self.dhead(h)
+        return torch.sigmoid(self.dhead(h))
 
 
 class QHead(nn.Module):
     def __init__(self, c_dim) -> None:
         super().__init__()
         self.c_dim = c_dim
-        self.qhead = nn.Sequential(
-            nn.Linear(2048, 128),
-            nn.ReLU(),
-            nn.Linear(128, c_dim),
+        self.conv = nn.Sequential(
+            nn.Conv2d(1024, 128, 1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(0.1),
+            nn.Conv2d(128, c_dim, 1),
         )
 
     def forward(self, h):
-        return self.qhead(h)
+        return self.conv(h)
