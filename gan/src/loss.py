@@ -19,13 +19,13 @@ def logsumexp(x: Tensor, dim: int) -> Tensor:
     return s.masked_fill_(mask, 1).log() + m.masked_fill_(mask, -float("inf"))
 
 
-def _snn_loss(sim: torch.Tensor, pos_target: torch.Tensor, temperature: float):
+def _snn_loss(sim: torch.Tensor, pair_mat: torch.Tensor, temperature: float):
     n = sim.shape[0]
     sim = sim.clone()
     sim[torch.eye(n).bool()] = float("-Inf")
 
-    neg_mask = pos_target == 0
-    pos = pos_target * sim
+    neg_mask = pair_mat == 0
+    pos = pair_mat * sim
     pos[neg_mask] = float("-Inf")
     loss = -logsumexp(pos / temperature, dim=1) + logsumexp(sim / temperature, dim=1)
     return loss
@@ -35,9 +35,13 @@ def snn_loss(
     z: torch.Tensor,
     label: torch.Tensor,
     temperature: float,
+    flip: bool = False,
 ):
-    pos_target = (label[None, :] == label[:, None]).float()  # pair matrix
+    if not flip:
+        pair_mat = (label[None, :] == label[:, None]).float()  # pair matrix
+    else:
+        pair_mat = (label[None, :] != label[:, None]).float()
     sim = pairwise_cosine(z)  # similarity matrix
-    losses = _snn_loss(sim, pos_target, temperature)
+    losses = _snn_loss(sim, pair_mat, temperature)
     finite_mask = torch.isfinite(losses)
     return losses[finite_mask].mean()
