@@ -465,7 +465,8 @@ class CLEARInfoGAN:
             nn.Linear(z_dim + num_classes, 256), nn.ReLU(), nn.Linear(256, self.z_s_dim)
         ).to(device)
         self.encoder = Encoder().apply(weights_init).to(device)
-        self.qhead = QHead(c_dim=self.z_c_dim).to(device)
+        self.qhead_c = QHead(out_dim=self.z_c_dim).to(device)
+        self.qhead_s = QHead(out_dim=self.z_s_dim).to(device)
         self.dhead = DHead().to(device)
 
         self.loss = nn.BCELoss()
@@ -476,7 +477,11 @@ class CLEARInfoGAN:
             self.zs_encoder.parameters()
         )
         d_params = list(self.encoder.parameters()) + list(self.dhead.parameters())
-        g_params = list(self.generator.parameters()) + list(self.qhead.parameters())
+        g_params = (
+            list(self.generator.parameters())
+            + list(self.qhead_c.parameters())
+            + list(self.qhead_s.parameters())
+        )
         self.z_opt = Adam(z_params, lr=2 * lr)
         self.d_opt = Adam(d_params, lr=lr, betas=(0.5, 0.999))
         self.g_opt = Adam(g_params, lr=lr, betas=(0.5, 0.999))
@@ -489,12 +494,12 @@ class CLEARInfoGAN:
             self._train(train_loader, verbose, epoch, d_losses, g_losses, q_losses)
         return d_losses, g_losses, q_losses
 
-    def _contrastive_step(self, z, label, num_classes):
+    def _contrastive_step(self, z, label, num_classes, tau):
         self.z_opt.zero_grad()
         label_onehot = nn.functional.one_hot(label, num_classes).to(self.device)
         z_c = self.zc_encoder(torch.cat([z, label_onehot], dim=-1))
         z_s = self.zs_encoder(torch.cat([z, label_onehot], dim=-1))
-        loss_c, loss_s = snn_loss(z_c, label, 0.2), snn_loss(z_s, label, 0.2, flip=True)
+        loss_c, loss_s = snn_loss(z_c, label, tau), snn_loss(z_s, label, tau, flip=True)
         (loss_c + loss_s).backward()
         self.z_opt.step()
         return z_c.detach(), z_s.detach(), loss_c, loss_s
@@ -513,9 +518,10 @@ class CLEARInfoGAN:
         self.zs_encoder.train()
         self.encoder.train()
         self.dhead.train()
-        self.qhead.train()
+        self.qhead_c.train()
 
         lambda_info = self.hyperparam["lambda_info"]
+        tau = self.hyperparam["tau"]
 
         with tqdm(train_loader, unit="batch", disable=not verbose) as bar:
             bar.set_description(f"Epoch {epoch}")
@@ -531,7 +537,7 @@ class CLEARInfoGAN:
                 )
                 z_raw = torch.randn(batch_size, self.z_dim).to(self.device)
                 z_c, z_s, loss_c, loss_s = self._contrastive_step(
-                    z=z_raw, label=_category, num_classes=self.num_classes
+                    z=z_raw, label=_category, num_classes=self.num_classes, tau=tau
                 )
                 z = torch.cat([z_c, z_s], dim=1)[:, :, None, None]
 
@@ -559,9 +565,10 @@ class CLEARInfoGAN:
                 # min log(1 - D(G(z))) <==> min -log( D(G(z)) )
                 g_loss = self.loss(fake_scores, real_labels)
                 # min Q(c|fake_x)
-                z_c_hat = self.qhead(fake_hidden).squeeze()
+                z_c_hat = self.qhead_c(fake_hidden).squeeze()
+                z_s_hat = self.qhead_s(fake_hidden).squeeze()
 
-                q_loss = self.qloss(z_c_hat, z_c)
+                q_loss = self.qloss(z_c_hat, z_c) + self.qloss(z_s_hat, z_s)
 
                 (g_loss + lambda_info * q_loss).backward()
                 self.g_opt.step()

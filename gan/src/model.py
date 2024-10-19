@@ -34,7 +34,7 @@ class Discriminator(nn.Module):
             nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(128),
             nn.LeakyReLU(0.1),
-            nn.Conv2d(128, 1024, kernel_size=3, stride=2, padding=1),
+            nn.Conv2d(128, 1024, kernel_size=7, stride=1),
             nn.BatchNorm2d(1024),
             nn.LeakyReLU(0.1),
         )
@@ -100,14 +100,14 @@ class DHead(nn.Module):
 
 
 class QHead(nn.Module):
-    def __init__(self, c_dim) -> None:
+    def __init__(self, out_dim) -> None:
         super().__init__()
-        self.c_dim = c_dim
+        self.out_dim = out_dim
         self.conv = nn.Sequential(
             nn.Conv2d(1024, 128, 1, bias=False),
             nn.BatchNorm2d(128),
             nn.LeakyReLU(0.1),
-            nn.Conv2d(128, c_dim, 1),
+            nn.Conv2d(128, out_dim, 1),
         )
 
     def forward(self, h):
