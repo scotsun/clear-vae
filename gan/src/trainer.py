@@ -55,6 +55,7 @@ class GAN:
                 batch_size = x.size(0)
 
                 # 1. Train Discriminator
+                self.d_opt.zero_grad()
                 z = torch.randn(batch_size, self.generator.z_dim, 1, 1).to(self.device)
 
                 a = torch.ones(batch_size).to(self.device)
@@ -64,21 +65,19 @@ class GAN:
                 real_scores = self.disciminator(x).squeeze()
                 d_loss_real = self.loss(real_scores, a)
                 # compute bce using the fake
-                fake_x = self.generator(z).detach()
-                fake_scores = self.disciminator(fake_x).squeeze()
+                fake_x = self.generator(z)
+                fake_scores = self.disciminator(fake_x.detach()).squeeze()
                 d_loss_fake = self.loss(fake_scores, b)
 
                 # opt discriminator
                 # max log(D(x)) + log(1 - D(G(z))) <==> min -log(D(x)) - log(1 - D(G(z)))
                 d_loss = 0.5 * (d_loss_real + d_loss_fake)
-                self.disciminator.zero_grad()
                 d_loss.backward()
                 self.d_opt.step()
                 self.disciminator.eval()
 
                 # 2. Train Generator
-                z = torch.randn(batch_size, self.generator.z_dim, 1, 1).to(self.device)
-                fake_x = self.generator(z)
+                self.g_opt.zero_grad()
                 fake_scores = self.disciminator(fake_x).squeeze()
                 # min log(1 - D(G(z))) <==> min -log( D(G(z)) )
                 g_loss = 0.5 * self.loss(fake_scores, a)
@@ -137,8 +136,10 @@ class WGAN:
         self.generator = generator.apply(weights_init).to(device)
         self.disciminator = discriminator.apply(weights_init).to(device)
 
-        self.d_opt = Adam(self.disciminator.parameters(), lr=2 * lr, betas=(0.5, 0.999))
-        self.g_opt = Adam(self.generator.parameters(), lr=lr, betas=(0.5, 0.999))
+        self.d_opt = Adam(
+            self.disciminator.parameters(), lr=lr["D"], betas=(0.5, 0.999)
+        )
+        self.g_opt = Adam(self.generator.parameters(), lr=lr["G"], betas=(0.5, 0.999))
 
     def fit(self, epochs: int, train_loader: DataLoader):
         d_losses, g_losses = [], []
@@ -156,7 +157,7 @@ class WGAN:
         g_losses: list,
     ):
         n_critic = self.hyperparam["n_critic"]
-        lambda_gp = self.hyperparam["lambda"]
+        lambda_gp = self.hyperparam["lambda_gp"]
 
         self.generator.train()
         self.disciminator.train()
@@ -168,6 +169,7 @@ class WGAN:
 
                 # 1. Train Discriminator
                 for _ in range(n_critic):
+                    self.d_opt.zero_grad()
                     z = torch.randn(batch_size, self.generator.z_dim, 1, 1).to(
                         self.device
                     )
@@ -177,7 +179,7 @@ class WGAN:
 
                     # compute using the fake
                     fake_x = self.generator(z)
-                    fake_scores = self.disciminator(fake_x).squeeze()
+                    fake_scores = self.disciminator(fake_x.detach()).squeeze()
 
                     # compute gp
                     gp = gradient_penalty(
@@ -190,8 +192,7 @@ class WGAN:
                     # opt discriminator
                     # max ( D(x) - D(G(z)) ) <==> min - ( D(x) - D(G(z)) ) + gp-regularizer
                     d_loss = -(real_scores.mean() - fake_scores.mean()) + lambda_gp * gp
-                    self.disciminator.zero_grad()
-                    d_loss.backward(retain_graph=True)
+                    d_loss.backward()
                     self.d_opt.step()
 
                 # 2. Train Generator
