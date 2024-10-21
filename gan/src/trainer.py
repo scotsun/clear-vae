@@ -229,7 +229,7 @@ class InfoGAN:
         self.qhead = qhead.to(device)
         self.dhead = dhead.to(device)
 
-        self.z_c_dim = qhead.c_dim
+        self.z_c_dim = qhead.out_dim
         self.z_s_dim = generator.z_dim - self.z_c_dim
 
         self.loss = nn.BCELoss()
