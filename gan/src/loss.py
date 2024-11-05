@@ -8,6 +8,10 @@ def pairwise_cosine(mu: torch.Tensor):
     return F.cosine_similarity(mu[None, :, :], mu[:, None, :], dim=-1)
 
 
+def pairwise_l2(mu: torch.Tensor):
+    return -((mu[None, :, :] - mu[:, None, :]) ** 2).sum(dim=-1)
+
+
 @jit.script
 def logsumexp(x: Tensor, dim: int) -> Tensor:
     """Stable logsumexp."""

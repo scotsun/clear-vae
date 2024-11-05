@@ -28,25 +28,27 @@ class Discriminator(nn.Module):
     def __init__(self, gan_type: str = "least-square"):
         super().__init__()
         self.gan_type = gan_type
-        self.enc = nn.Sequential(
-            nn.Conv2d(1, 64, kernel_size=4, stride=2, padding=1),
-            nn.LeakyReLU(0.1),
-            nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1),
-            nn.BatchNorm2d(128),
-            nn.LeakyReLU(0.1),
-            nn.Conv2d(128, 1024, kernel_size=7, stride=1),
-            nn.BatchNorm2d(1024),
-            nn.LeakyReLU(0.1),
-        )
-        self.wenc = nn.Sequential(
-            nn.Conv2d(1, 64, kernel_size=4, stride=2, padding=1),
-            nn.LeakyReLU(0.1),
-            nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1),
-            nn.InstanceNorm2d(128, affine=True),
-            nn.LeakyReLU(0.1),
-            nn.Conv2d(128, 1024, kernel_size=7, stride=1),
-            nn.LeakyReLU(0.1),
-        )
+        if gan_type == "wasserstein":
+            self.enc = nn.Sequential(
+                nn.Conv2d(1, 64, kernel_size=4, stride=2, padding=1),
+                nn.LeakyReLU(0.1),
+                nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1),
+                nn.InstanceNorm2d(128, affine=True),
+                nn.LeakyReLU(0.1),
+                nn.Conv2d(128, 1024, kernel_size=7, stride=1),
+                nn.LeakyReLU(0.1),
+            )
+        else:
+            self.enc = nn.Sequential(
+                nn.Conv2d(1, 64, kernel_size=4, stride=2, padding=1),
+                nn.LeakyReLU(0.1),
+                nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1),
+                nn.BatchNorm2d(128),
+                nn.LeakyReLU(0.1),
+                nn.Conv2d(128, 1024, kernel_size=7, stride=1),
+                nn.BatchNorm2d(1024),
+                nn.LeakyReLU(0.1),
+            )
         self.dhead = nn.Conv2d(1024, 1, 1)
 
     def forward(self, x):
@@ -56,7 +58,7 @@ class Discriminator(nn.Module):
             case "least-square":
                 return self.dhead(self.enc(x))
             case "wasserstein":
-                return self.dhead(self.wenc(x))
+                return self.dhead(self.enc(x))
             case _:
                 raise NotImplementedError(f"{self.gan_type} is not implemented")
 
