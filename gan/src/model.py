@@ -81,24 +81,29 @@ class Encoder(nn.Module):
         return self.enc(x)
 
 
-class WassersteinEncoder(nn.Module):
-    def __init__(self):
+class CLEARWassersteinCritic(nn.Module):
+    def __init__(self, z_dim):
         super().__init__()
+        self.z_dim = z_dim
         self.enc = nn.Sequential(
-            nn.Conv2d(1, 32, kernel_size=3, stride=2, padding=1),
-            nn.InstanceNorm2d(32, affine=True),
+            nn.Conv2d(1, 64, kernel_size=4, stride=2, padding=1),
             nn.LeakyReLU(0.1),
-            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),
-            nn.InstanceNorm2d(64, affine=True),
-            nn.LeakyReLU(0.1),
-            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1),
+            nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1),
             nn.InstanceNorm2d(128, affine=True),
             nn.LeakyReLU(0.1),
-            nn.Flatten(),
+            nn.Conv2d(128, 1024, kernel_size=7, stride=1),
+            nn.LeakyReLU(0.1),
         )
+        self.c = nn.Conv2d(1024, z_dim, 1)
+        self.s = nn.Conv2d(1024, z_dim, 1)
+        self.headc = nn.Linear(z_dim, 1)
+        self.heads = nn.Linear(z_dim, 1)
 
     def forward(self, x):
-        return self.enc(x)
+        h = self.enc(x)
+        c, s = self.c(h).squeeze(), self.s(h).squeeze()
+        c_score, s_score = self.headc(c), self.heads(s)
+        return (c_score, s_score), c, s
 
 
 class DHead(nn.Module):

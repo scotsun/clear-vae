@@ -109,12 +109,41 @@ def gradient_penalty(D, real_sample, fake_sample, device):
     alpha = torch.randn((N, 1, 1, 1)).repeat(1, C, H, W).to(device)
     # get X_hat, the interpolation between real samples and fake samples
     interpolated_images = real_sample * alpha + fake_sample * (1 - alpha)
+    interpolated_images.requires_grad = True
     interpolated_scores = D(interpolated_images)
     # get the grad D(X_hat)
     gradients = torch.autograd.grad(
         inputs=interpolated_images,
         outputs=interpolated_scores,
         grad_outputs=torch.ones_like(interpolated_scores),
+        create_graph=True,
+        retain_graph=True,
+    )[0]
+    # compute the penalty
+    gradients = gradients.reshape(N, -1)
+    penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean()
+    return penalty
+
+
+def gradient_penalty_clear(D, real_sample, fake_sample, device):
+    """Compute the gradient penalty loss for CLEAR-WGAN.
+
+    L2 Regularize/penalize discriminator's weight gradients L2 norm being greater than 1.
+    """
+    N, C, H, W = real_sample.shape
+    alpha = torch.randn((N, 1, 1, 1)).repeat(1, C, H, W).to(device)
+    # get X_hat, the interpolation between real samples and fake samples
+    interpolated_images = real_sample * alpha + fake_sample * (1 - alpha)
+    interpolated_images.requires_grad = True
+    interpolated_scores = D(interpolated_images)[0]  # first elem (c_scores, s_scores)
+    # get the grad D(X_hat)
+    gradients = torch.autograd.grad(
+        inputs=interpolated_images,
+        outputs=interpolated_scores,
+        grad_outputs=(
+            torch.ones_like(interpolated_scores[0]),
+            torch.ones_like(interpolated_scores[1]),
+        ),
         create_graph=True,
         retain_graph=True,
     )[0]
@@ -185,7 +214,7 @@ class WGAN:
                     gp = gradient_penalty(
                         D=self.disciminator,
                         real_sample=x,
-                        fake_sample=fake_x,
+                        fake_sample=fake_x.detach(),
                         device=self.device,
                     )
 
@@ -320,6 +349,107 @@ class InfoGAN:
                     d_loss=d_loss.item(),
                     g_loss=g_loss.item(),
                     q_loss=q_loss.item(),
+                )
+
+
+class CLEARWGAN:
+    def __init__(
+        self, generator, critic, lr, hyperparam: dict, verbose_period, device
+    ) -> None:
+        self.verbose_period = verbose_period
+        self.device = device
+
+        self.hyperparam = hyperparam
+
+        self.generator = generator.apply(weights_init).to(device)
+        self.critic = critic.apply(weights_init).to(device)
+
+        self.d_opt = Adam(self.critic.parameters(), lr=lr["D"], betas=(0.5, 0.999))
+        self.g_opt = Adam(self.generator.parameters(), lr=lr["G"], betas=(0.5, 0.999))
+
+    def fit(self, epochs: int, train_loader: DataLoader):
+        d_losses, g_losses = [], []
+        for epoch in range(epochs):
+            verbose = (epoch % self.verbose_period) == 0
+            self._train(train_loader, verbose, epoch, d_losses, g_losses)
+        return d_losses, g_losses
+
+    def _train(
+        self,
+        train_loader: DataLoader,
+        verbose: bool,
+        epoch: int,
+        d_losses: list,
+        g_losses: list,
+    ):
+        n_critic = self.hyperparam["n_critic"]
+        lambda_gp = self.hyperparam["lambda_gp"]
+        lambda_clear = self.hyperparam["lambda_clear"]
+        temperature = self.hyperparam["temperature"]
+
+        self.generator.train()
+        self.critic.train()
+
+        with tqdm(train_loader, unit="batch", disable=not verbose) as bar:
+            bar.set_description(f"Epoch {epoch}")
+            for batch in bar:
+                x = batch[0].to(self.device)
+                label = batch[1].to(self.device).reshape(-1).long()
+                batch_size = x.size(0)
+
+                # 1. Train Critic
+                for _ in range(n_critic):
+                    self.d_opt.zero_grad()
+                    z = torch.randn(batch_size, self.generator.z_dim, 1, 1).to(
+                        self.device
+                    )
+                    # compute real scores
+                    real_scores, real_c, real_s = self.critic(x)
+                    _contrast = snn_loss(real_c, label, temperature)
+                    _anticontrast = snn_loss(real_s, label, temperature, flip=True)
+
+                    # compute fake scores
+                    fake_x = self.generator(z)
+                    fake_scores, _, _ = self.critic(fake_x.detach())
+
+                    # compute gp
+                    gp = gradient_penalty_clear(
+                        D=self.critic,
+                        real_sample=x,
+                        fake_sample=fake_x.detach(),
+                        device=self.device,
+                    )
+
+                    # opt critic
+                    d_loss = (
+                        -(real_scores[0].mean() - fake_scores[0].mean())
+                        - (real_scores[1].mean() - fake_scores[1].mean())
+                        + lambda_gp * gp
+                    )
+
+                    (
+                        d_loss + lambda_clear * _contrast + lambda_clear * _anticontrast
+                    ).backward()
+                    self.d_opt.step()
+
+                # 2. Train Generator
+                self.g_opt.zero_grad()
+                z = torch.randn(batch_size, self.generator.z_dim, 1, 1).to(self.device)
+                fake_x = self.generator(z)
+                fake_scores, _, _ = self.critic(fake_x)
+                # opt generator
+                g_loss = -fake_scores[0].mean() - fake_scores[1].mean()
+                g_loss.backward()
+                self.g_opt.step()
+
+                # update bar
+                d_losses.append(float(d_loss))
+                g_losses.append(float(g_loss))
+                bar.set_postfix(
+                    d_loss=d_loss.item(),
+                    g_loss=g_loss.item(),
+                    contrast_c=_contrast.item(),
+                    anticontrast_s=_anticontrast.item(),
                 )
 
 

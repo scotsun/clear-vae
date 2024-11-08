@@ -45,7 +45,7 @@ def snn_loss(
         pair_mat = (label[None, :] == label[:, None]).float()  # pair matrix
     else:
         pair_mat = (label[None, :] != label[:, None]).float()
-    sim = pairwise_cosine(z)  # similarity matrix
+    sim = pairwise_l2(z)  # similarity matrix
     losses = _snn_loss(sim, pair_mat, temperature)
     finite_mask = torch.isfinite(losses)
     return losses[finite_mask].mean()

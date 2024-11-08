@@ -178,17 +178,20 @@ def generate_style_dict(classes: list, style_fns: list, k: int):
 
 
 class KStyledMNISTGenerator:
-    def __init__(self, dataset: Dataset, style_dict: dict, split: str) -> None:
+    def __init__(
+        self, dataset: Dataset, style_dict: dict, split: str, style_fns: list
+    ) -> None:
         self.dataset = dataset
         self.style_dict = style_dict
         self.split = split
+        self.style_fns = style_fns
 
     def __getitem__(self, idx):
         img, label = self.dataset[idx]
         cfns = self.style_dict[label][self.split]
-        cfn_idx = np.random.choice(len(cfns))
-
-        img = cfns[cfn_idx](img)
+        _cfn_idx = np.random.choice(len(cfns))  # temp style index in the style_dict
+        cfn_idx = self.style_fns.index(cfns[_cfn_idx])
+        img = cfns[_cfn_idx](img)
         return img, label, cfn_idx
 
     @property
