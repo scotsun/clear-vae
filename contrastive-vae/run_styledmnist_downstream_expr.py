@@ -9,7 +9,7 @@ from corruption_utils import corruptions
 from src.model import SimpleCNNClassifier, VAE
 from src.trainer import (
     SimpleCNNTrainer,
-    MLVAETrainer,
+    HierachicalVAETrainer,
     CLEARVAETrainer,
     DownstreamMLPTrainer,
 )
@@ -88,7 +88,7 @@ def experiment(k, seed):
     print("mlvae:")
     vae = VAE(total_z_dim=16).to(device)
     optimizer = torch.optim.Adam(vae.parameters(), lr=1e-3)
-    trainer = MLVAETrainer(
+    trainer = HierachicalVAETrainer(
         vae,
         optimizer,
         hyperparameter={"beta": 1 / 8, "loc": 0, "scale": 1},

@@ -55,8 +55,11 @@ class SimpleCNN64Classifier(SimpleCNNClassifier):
 
 
 class VAE(nn.Module):
-    def __init__(self, total_z_dim, in_channel: int = 1) -> None:
+    def __init__(
+        self, total_z_dim, in_channel: int = 1, group_mode: str | None = None
+    ) -> None:
         super().__init__()
+        self.mode = group_mode
         self.z_dim = int(total_z_dim / 2)
         # encoder
         self.encoder = nn.Sequential(
@@ -129,7 +132,9 @@ class VAE(nn.Module):
         mu_c, logvar_c, mu_s, logvar_s = self.encode(x)
 
         if label is not None:  # if label is provided, then we have a grouping dict
-            mu_c, logvar_c, g_dict = accumulate_group_evidence(mu_c, logvar_c, label)
+            mu_c, logvar_c, g_dict = accumulate_group_evidence(
+                mu_c, logvar_c, label, mode=self.mode
+            )
         else:  # else we do not have a grouping dict
             g_dict = None
 
@@ -200,7 +205,7 @@ class VAE64(VAE):
 
 
 def accumulate_group_evidence(
-    mu_c, logvar_c, label_batch
+    mu_c, logvar_c, label_batch, mode: str
 ) -> tuple[torch.Tensor, torch.Tensor, dict]:
     device = mu_c.device
     groups = (label_batch).unique(sorted=True)
@@ -214,12 +219,21 @@ def accumulate_group_evidence(
 
         group_idx[g.item()] = group_select.nonzero().view(-1)
 
-        loginvvar_c = -logvar_c[group_select, :]
-        group_mu_invvar = (mu_c[group_select, :] * loginvvar_c.exp()).sum(dim=0)
-        group_loginvvar = loginvvar_c.logsumexp(dim=0)
+        if mode == "MLVAE":
+            loginvvar_c = -logvar_c[group_select, :]
+            group_mu_invvar = (mu_c[group_select, :] * loginvvar_c.exp()).sum(dim=0)
+            group_loginvvar = loginvvar_c.logsumexp(dim=0)
 
-        mu_acc_grp[i] = group_mu_invvar * torch.exp(-group_loginvvar)
-        logvar_acc_grp[i] = -group_loginvvar
+            mu_acc_grp[i] = group_mu_invvar * torch.exp(-group_loginvvar)
+            logvar_acc_grp[i] = -group_loginvvar
+        elif mode == "GVAE":
+            mu_acc_grp[i] = mu_c[group_select, :].mean(dim=0)
+            # group_size <- group_select.sum()
+            logvar_acc_grp[i] = (
+                logvar_c[group_select, :].logsumexp(dim=0) - group_select.sum().log()
+            )
+        else:
+            raise NotImplementedError("only support using MLVAE or GVAE")
 
     return mu_acc_grp, logvar_acc_grp, group_idx
 
