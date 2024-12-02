@@ -84,9 +84,10 @@ def experiment(k, seed):
         test_loader, False, 0
     )
     print()
-    # ml-vae+mlp pipeline
+
+    # gvae+mlp pipeline
     print("mlvae:")
-    vae = VAE(total_z_dim=16).to(device)
+    vae = VAE(total_z_dim=16, group_mode="GVAE").to(device)
     optimizer = torch.optim.Adam(vae.parameters(), lr=1e-3)
     trainer = HierachicalVAETrainer(
         vae,
@@ -95,7 +96,37 @@ def experiment(k, seed):
         verbose_period=5,
         device=device,
     )
-    trainer.fit(EPOCHS, train_loader, valid_loader, with_evidence_acc=False)
+    trainer.fit(EPOCHS, train_loader, valid_loader, eval_evidence_acc=False)
+    vae.eval()
+    for p in vae.parameters():
+        p.requires_grad = False
+    mlp = torch.nn.Sequential(
+        torch.nn.Linear(8, 256),
+        torch.nn.BatchNorm1d(256),
+        torch.nn.ReLU(),
+        torch.nn.Linear(256, 10),
+    ).to(device)
+    optimizer = torch.optim.Adam(mlp.parameters(), lr=3e-4)
+    criterion = torch.nn.CrossEntropyLoss()
+    trainer = DownstreamMLPTrainer(vae, mlp, optimizer, criterion, 10, device)
+    trainer.fit(EPOCHS, train_loader, valid_loader)
+    (gvae_aupr_scores, gvae_auroc_scores), gvae_acc = trainer.evaluate(
+        test_loader, False, 0
+    )
+    print()
+
+    # ml-vae+mlp pipeline
+    print("mlvae:")
+    vae = VAE(total_z_dim=16, group_mode="MLVAE").to(device)
+    optimizer = torch.optim.Adam(vae.parameters(), lr=1e-3)
+    trainer = HierachicalVAETrainer(
+        vae,
+        optimizer,
+        hyperparameter={"beta": 1 / 8, "loc": 0, "scale": 1},
+        verbose_period=5,
+        device=device,
+    )
+    trainer.fit(EPOCHS, train_loader, valid_loader, eval_evidence_acc=False)
     vae.eval()
     for p in vae.parameters():
         p.requires_grad = False
@@ -113,6 +144,7 @@ def experiment(k, seed):
         test_loader, False, 0
     )
     print()
+
     # clear-vae+mlp pipeline
     print("clear-vae:")
     vae = VAE(total_z_dim=16).to(device)
@@ -150,6 +182,7 @@ def experiment(k, seed):
         test_loader, False, 0
     )
     print()
+
     expr_output = dict()
     expr_output["cnn"] = {
         "acc": round(float(cnn_acc), 3),
@@ -160,6 +193,17 @@ def experiment(k, seed):
         "roc": {
             "overall": np.mean(list(cnn_auroc_scores.values())).round(3),
             "stratified": cnn_auroc_scores,
+        },
+    }
+    expr_output["gvae + mlp"] = {
+        "acc": round(float(gvae_acc), 3),
+        "pr": {
+            "overall": np.mean(list(gvae_aupr_scores.values())).round(3),
+            "stratified": gvae_aupr_scores,
+        },
+        "roc": {
+            "overall": np.mean(list(gvae_auroc_scores.values())).round(3),
+            "stratified": gvae_auroc_scores,
         },
     }
     expr_output["ml-vae + mlp"] = {

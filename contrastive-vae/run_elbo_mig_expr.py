@@ -123,7 +123,7 @@ def _main_helper_mlvae(
     epochs: int,
     with_evidence_acc: bool,
 ):
-    trainer.fit(epochs, train_loader, valid_loader, with_evidence_acc=True)
+    trainer.fit(epochs, train_loader, valid_loader, eval_evidence_acc=True)
     print("")
     mig, elbo = trainer.evaluate(test_loader, False, 0, with_evidence_acc)
     mig_list.append(mig)

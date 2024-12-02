@@ -235,13 +235,13 @@ class HierachicalVAETrainer(Trainer):
         epochs: int,
         train_loader: DataLoader,
         valid_loader: None | DataLoader = None,
-        with_evidence_acc: bool = False,
+        eval_evidence_acc: bool = False,
     ):
         for epoch in range(epochs):
             verbose = (epoch % self.verbose_period) == 0
             self._train(train_loader, verbose, epoch)
             if valid_loader is not None:
-                self._valid(valid_loader, verbose, epoch, with_evidence_acc)
+                self._valid(valid_loader, verbose, epoch, eval_evidence_acc)
 
     def _group_adjust(self, B, m, *losses):
         "B: batch size; m: number of groups"
