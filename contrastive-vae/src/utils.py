@@ -73,6 +73,8 @@ def random_style_distribution(
 
 
 class StyledMNISTGenerator:
+    """A Helper class to fix the random style assignment to each MNIST image."""
+
     def __init__(
         self, dataset: torchvision.datasets.MNIST, corruption_fns: None | dict
     ) -> None:

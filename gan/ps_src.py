@@ -124,11 +124,15 @@ class MLPTrainer:
                 if self.ps:
                     # stylistic label
                     label_batch = batch[-1].long().to(device)
-                    ps_loss = snn_loss(h, label_batch, temperature=0.2, flip=True)
+                    ps_loss = snn_loss(h, label_batch, temperature=0.07, flip=True)
+
                     loss = criterion(logits, y_batch)
-                    (loss + 100 * ps_loss).backward()
+                    (loss + 10 * ps_loss).backward()
                     optimizer.step()
-                    bar.set_postfix(loss=float(loss), ps_loss=float(ps_loss))
+                    bar.set_postfix(
+                        loss=float(loss),
+                        ps_loss=float(ps_loss),
+                    )
                 else:
                     loss = criterion(logits, y_batch)
                     loss.backward()
