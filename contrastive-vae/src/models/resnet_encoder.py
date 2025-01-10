@@ -94,7 +94,6 @@ class ResNet(nn.Module):
         self,
         block,
         layers: List[int],
-        num_classes: int = 1000,
         zero_init_residual: bool = False,
         groups: int = 1,
         width_per_group: int = 64,
@@ -137,7 +136,6 @@ class ResNet(nn.Module):
             block, 512, layers[3], stride=2, dilate=replace_stride_with_dilation[2]
         )
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(512 * block.expansion, num_classes)
         self.return_indices = return_indices
         self.maxpool = nn.MaxPool2d(kernel_size=2, stride=2, return_indices=True)
 
