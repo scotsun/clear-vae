@@ -1,6 +1,9 @@
 """Data utility functions."""
 
 import numpy as np
+import pandas as pd
+from PIL import Image
+
 import torch
 import torchvision
 import torchvision.transforms as transforms
@@ -166,3 +169,42 @@ def generate_celeba_labels(attr: torch.Tensor):
     # so if a person is bold and has other color, he/she will be labeled as bold
 
     return content, style
+
+
+class CheXpert(Dataset):
+    def __init__(self, data_file: pd.DataFrame) -> None:
+        super().__init__()
+        self.data_file = data_file
+        self.transform = transforms.Compose(
+            [
+                transforms.Lambda(self._pad_to_square),
+                transforms.Resize((224, 224)),
+                transforms.ToTensor(),
+            ]
+        )
+
+    def __len__(self):
+        return self.data_file.shape[0]
+
+    def _pad_to_square(self, img):
+        width, height = img.size
+        if width == height:
+            return img
+        # Calculate padding
+        max_dim = max(width, height)
+        left = (max_dim - width) // 2
+        top = (max_dim - height) // 2
+        right = max_dim - width - left
+        bottom = max_dim - height - top
+        # Apply padding
+        return transforms.functional.pad(img, (left, top, right, bottom), fill=0)
+
+    def __getitem__(self, idx) -> tuple:
+        path = "../data/chexpert/" + self.data_file.iloc[idx]["Path"].split("/", 1)[1]
+        img = Image.open(path)
+        img = self.transform(img)
+        return img
+
+    def display(self, idx):
+        img = self.__getitem__(idx)
+        return transforms.ToPILImage()(img)
