@@ -3,6 +3,7 @@ import math
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -444,6 +445,8 @@ class CLEARVAETrainer(Trainer):
             ):
                 X, label = batch[0], batch[1].reshape(-1).long()
                 X, label = X.to(device), label.to(device)
+                if self.transform:
+                    X = self.transform(X)
 
                 X_hat, latent_params, z = vae(X, explicit=True)
 
@@ -491,6 +494,219 @@ class CLEARVAETrainer(Trainer):
                     total_kl_s / len(dataloader),
                     total_c_loss / len(dataloader),
                     total_s_loss / len(dataloader),
+                )
+            )
+
+        return mig, elbo
+
+
+def factor_shuffling(z: torch.Tensor, strategy: str = "permute_1"):
+    """
+    z = (z_c, z_s)
+    """
+    z_dim = int(z.shape[1] / 2)
+    z_c, z_s = z[:, :z_dim], z[:, z_dim:]
+    match strategy:
+        case "full":
+            z_s_changed = z_s(torch.randperm(z_s.shape[0]))
+            return torch.cat([z_c, z_s_changed], dim=1)
+        case "permute_1":
+            z_s_changed = torch.cat([z_s[1:, :], z_s[0, :][None]], dim=0)
+            return torch.cat([z_c, z_s_changed], dim=1)
+        case _:
+            raise ValueError("this strategy is not implemented yet")
+
+
+class SEPVAETrainer(Trainer):
+    def __init__(
+        self,
+        model: VAE,
+        factor_cls: nn.Module,
+        optimizers: dict[str, Optimizer],
+        sim_fn: str,
+        hyperparameter: dict[str, float],
+        verbose_period: int,
+        device: torch.device,
+        transform=None,
+    ) -> None:
+        super().__init__(
+            model, optimizers["vae_optim"], verbose_period, device, transform
+        )
+        self.sim_fn = sim_fn
+        self.factor_optimizer = optimizers["factor_optim"]
+        self.factor_cls = factor_cls
+        self.hyperparameter = hyperparameter
+        self.annealer = LogisticAnnealer(
+            loc=hyperparameter["loc"],
+            scale=hyperparameter["scale"],
+            beta=hyperparameter["beta"],
+        )
+
+    def fit(
+        self,
+        epochs: int,
+        train_loader: DataLoader,
+        valid_loader: None | DataLoader = None,
+    ):
+        factor_d_losses = []
+        for epoch in range(epochs):
+            verbose = (epoch % self.verbose_period) == 0
+            self._train(train_loader, verbose, epoch, factor_d_losses)
+            if valid_loader is not None:
+                self._valid(valid_loader, verbose, epoch)
+        return factor_d_losses
+
+    def _train(
+        self,
+        dataloader: DataLoader,
+        verbose: bool,
+        epoch_id: int,
+        factor_d_losses: list,
+    ):
+        vae = self.model
+        factor_cls = self.factor_cls
+        vae.train()
+        factor_cls.train()
+        vae_optimizer = self.optimizer  # taking enc & dec params
+        factor_optimizer = self.factor_optimizer  # taking factor_cls params
+        annealer = self.annealer
+        device = self.device
+        hyperparameter = self.hyperparameter
+        with tqdm(dataloader, unit="batch", mininterval=0, disable=not verbose) as bar:
+            bar.set_description(f"Epoch {epoch_id}")
+            for batch in bar:
+                X, label = batch[0], batch[1].reshape(-1).long()
+                X, label = X.to(device), label.to(device)
+                if self.transform:
+                    X = self.transform(X)
+
+                # vae training
+                X_hat, latent_params, z = vae(X, explicit=True)
+                vae_optimizer.zero_grad()
+                _reconstr_loss, _kl_c, _kl_s = vae_loss(X_hat, X, **latent_params)
+                _ntxent_loss = snn_loss(
+                    mu=latent_params["mu_c"],
+                    logvar=latent_params["logvar_c"],
+                    label=label,
+                    sim_fn=self.sim_fn,
+                    temperature=hyperparameter["temperature"],
+                )
+                d_score = factor_cls(z)
+                _mi_loss = F.relu(torch.log(d_score / (1 - d_score))).mean()
+
+                loss = (
+                    _reconstr_loss
+                    + annealer(_kl_c)
+                    + annealer(_kl_s)
+                    + hyperparameter["alpha"] * _ntxent_loss
+                    + hyperparameter["lambda"] * _mi_loss
+                )
+
+                loss.backward()
+                vae_optimizer.step()
+                annealer.step()
+
+                # (density-ratio trick) tc factor_cls training
+                _, _, z = vae(X, explicit=True)
+                z = z.detach()
+                factor_optimizer.zero_grad()
+                d_score_joint = factor_cls(z)
+                d_score_marginals = factor_cls(factor_shuffling(z))
+                factor_loss = nn.BCELoss()(
+                    torch.cat([d_score_joint, d_score_marginals], dim=0),
+                    torch.cat(
+                        [
+                            torch.ones_like(d_score_joint),
+                            torch.zeros_like(d_score_marginals),
+                        ],
+                        dim=0,
+                    ),
+                )
+                factor_d_losses.append(float(factor_loss))
+
+                # factor cls update
+                factor_loss.backward()
+                factor_optimizer.step()
+
+                # logging
+                bar.set_postfix(
+                    factor_cls_loss=float(factor_loss),
+                    recontr_loss=float(_reconstr_loss),
+                    kl_c=float(_kl_c),
+                    kl_s=float(_kl_s),
+                    c_loss=float(_ntxent_loss),
+                    mi_loss=float(_mi_loss),
+                )
+
+    def _valid(self, dataloader, verbose, epoch_id):
+        if verbose:
+            mig, elbo = self.evaluate(dataloader, verbose, epoch_id)
+            print(f"gMIG: {round(mig, 3)}; elbo: {round(float(elbo), 3)}")
+
+    def evaluate(self, dataloader, verbose, epoch_id):
+        vae = self.model
+        factor_cls = self.factor_cls
+        vae.eval()
+        factor_cls.eval()
+        device = self.device
+        hyperparameter = self.hyperparameter
+        total_reconstr_loss, total_kl_c, total_kl_s, total_c_loss, total_mi_loss = (
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        )
+
+        all_label = []
+        all_latent_c = []
+        all_latent_s = []
+        with torch.no_grad():
+            for batch in tqdm(
+                dataloader, disable=not verbose, desc=f"val-epoch {epoch_id}"
+            ):
+                X, label = batch[0], batch[1].reshape(-1).long()
+                X, label = X.to(device), label.to(device)
+                if self.transform:
+                    X = self.transform(X)
+
+                X_hat, latent_params, z = vae(X, explicit=True)
+                _reconstr_loss, _kl_c, _kl_s = vae_loss(X_hat, X, **latent_params)
+                _ntxent_loss = snn_loss(
+                    mu=latent_params["mu_c"],
+                    logvar=latent_params["logvar_c"],
+                    label=label,
+                    sim_fn=self.sim_fn,
+                    temperature=hyperparameter["temperature"],
+                )
+                d_score = factor_cls(z)
+                _mi_loss = F.relu(torch.log(d_score / (1 - d_score))).mean()
+
+                total_reconstr_loss += _reconstr_loss
+                total_kl_c += _kl_c
+                total_kl_s += _kl_s
+                total_c_loss += _ntxent_loss
+                total_mi_loss += _mi_loss
+
+                all_label.append(label)
+                all_latent_c.append(z[:, : vae.z_dim])
+                all_latent_s.append(z[:, vae.z_dim :])
+        all_label, all_latent_c, all_latent_s = (
+            torch.cat(all_label),
+            torch.cat(all_latent_c),
+            torch.cat(all_latent_s),
+        )
+        mig = mutual_info_gap(all_label, all_latent_c, all_latent_s)
+        elbo = -float(total_reconstr_loss + total_kl_c + total_kl_s) / len(dataloader)
+
+        if verbose:
+            print(
+                "val_recontr_loss={:.3f}, val_kl_c={:.3f}, val_kl_s={:.3f}, val_c_loss={:.3f}, val_mi_loss={:.3f}".format(
+                    total_reconstr_loss / len(dataloader),
+                    total_kl_c / len(dataloader),
+                    total_kl_s / len(dataloader),
+                    total_c_loss / len(dataloader),
+                    total_mi_loss / len(dataloader),
                 )
             )
 
