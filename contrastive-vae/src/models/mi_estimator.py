@@ -3,6 +3,7 @@
 
 import torch
 import torch.nn as nn
+from torch import Tensor, jit
 
 
 class CLUB(nn.Module):  # CLUB: Mutual Information Contrastive Learning Upper Bound
@@ -145,6 +146,58 @@ class CLUBSample(nn.Module):  # Sampled version of the CLUB estimator
         return -self.loglikeli(x_samples, y_samples)
 
 
+class L1OutUB(nn.Module):  # naive upper bound
+    def __init__(self, x_dim, y_dim, hidden_size):
+        super(L1OutUB, self).__init__()
+        self.p_mu = nn.Sequential(
+            nn.Linear(x_dim, hidden_size // 2),
+            nn.ReLU(),
+            nn.Linear(hidden_size // 2, y_dim),
+        )
+
+        self.p_logvar = nn.Sequential(
+            nn.Linear(x_dim, hidden_size // 2),
+            nn.ReLU(),
+            nn.Linear(hidden_size // 2, y_dim),
+            nn.Tanh(),
+        )
+
+    def get_mu_logvar(self, x_samples):
+        mu = self.p_mu(x_samples)
+        logvar = self.p_logvar(x_samples)
+        return mu, logvar
+
+    def forward(self, x_samples, y_samples):
+        batch_size = y_samples.shape[0]
+        mu, logvar = self.get_mu_logvar(x_samples)
+
+        positive = (-((mu - y_samples) ** 2) / 2.0 / logvar.exp() - logvar / 2.0).sum(
+            dim=-1
+        )  # [nsample]
+
+        mu_1 = mu.unsqueeze(1)  # [nsample,1,dim]
+        logvar_1 = logvar.unsqueeze(1)
+        y_samples_1 = y_samples.unsqueeze(0)  # [1,nsample,dim]
+        all_probs = (
+            -((y_samples_1 - mu_1) ** 2) / 2.0 / logvar_1.exp() - logvar_1 / 2.0
+        ).sum(dim=-1)  # [nsample, nsample]
+
+        diag_mask = torch.ones([batch_size]).diag().unsqueeze(-1).cuda() * (-20.0)
+        negative = (
+            logsumexp(all_probs + diag_mask, dim=0)
+            - (torch.tensor(batch_size) - 1.0).log()
+        )  # [nsample]
+
+        return (positive - negative).mean()
+
+    def loglikeli(self, x_samples, y_samples):
+        mu, logvar = self.get_mu_logvar(x_samples)
+        return (-((mu - y_samples) ** 2) / logvar.exp() - logvar).sum(dim=1).mean(dim=0)
+
+    def learning_loss(self, x_samples, y_samples):
+        return -self.loglikeli(x_samples, y_samples)
+
+
 class VarUB(nn.Module):  #    variational upper bound
     def __init__(self, x_dim, y_dim, hidden_size):
         super(VarUB, self).__init__()
@@ -176,3 +229,14 @@ class VarUB(nn.Module):  #    variational upper bound
 
     def learning_loss(self, x_samples, y_samples):
         return -self.loglikeli(x_samples, y_samples)
+
+
+@jit.script
+def logsumexp(x: Tensor, dim: int) -> Tensor:
+    """Stable logsumexp."""
+    # cite: https://github.com/pytorch/pytorch/issues/31829
+    m, _ = x.max(dim=dim)
+    mask = m == -float("inf")
+
+    s = (x - m.masked_fill_(mask, 0).unsqueeze(dim=dim)).exp().sum(dim=dim)
+    return s.masked_fill_(mask, 1).log() + m.masked_fill_(mask, -float("inf"))
