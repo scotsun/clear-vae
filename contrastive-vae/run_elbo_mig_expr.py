@@ -19,8 +19,8 @@ CORRUPTION_FNS = {
     lambda x: corruptions.scale(x, 5): 0.1,
     corruptions.brightness: 0.2,
 }
-BETAS = [1 / 32, 1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8]
-# BETAS = [1]
+# BETAS = [1 / 32, 1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8]
+BETAS = [1]
 
 
 def get_args():
@@ -31,6 +31,7 @@ def get_args():
     parser.add_argument(
         "--alpha", type=float, default=1e2, help="penalty weight for snn; default 1e2"
     )
+    parser.add_argument("--epochs", type=int, default=16, help="num epochs")
     parser.add_argument(
         "--temperature",
         type=float,
@@ -127,117 +128,100 @@ def get_sepvae_trainer(beta, la, z_dim, alpha, temperature, device):
     return trainer
 
 
-def _main_helper(
-    mig_list: list,
-    elbo_list: list,
-    trainer: CLEARVAETrainer | SEPVAETrainer,
-    train_loader: DataLoader,
-    valid_loader: DataLoader,
-    test_loader: DataLoader,
-    epochs: int,
-):
-    print(f"----------{type(trainer)}------------")
-    trainer.fit(epochs, train_loader, valid_loader)
-    print("")
-    mig, elbo = trainer.evaluate(test_loader, False, 0)
-    mig_list.append(mig)
-    elbo_list.append(elbo)
-    return
+class ExperimentHelper:
+    def __init__(self):
+        self.mig_list = []
+        self.elbo_list = []
 
+    def run_experiment(
+        self,
+        trainer,
+        train_loader,
+        valid_loader,
+        test_loader,
+        epochs,
+    ):
+        print(f"----------{type(trainer)}------------")
 
-def _main_helper_hierachical_vae(
-    mig_list: list,
-    elbo_list: list,
-    trainer: HierachicalVAETrainer,
-    train_loader: DataLoader,
-    valid_loader: DataLoader,
-    test_loader: DataLoader,
-    epochs: int,
-    with_evidence_acc: bool,
-):
-    print(f"----------{type(trainer)}------------")
-    trainer.fit(epochs, train_loader, valid_loader, eval_evidence_acc=True)
-    print("")
-    mig, elbo = trainer.evaluate(test_loader, False, 0, with_evidence_acc)
-    mig_list.append(mig)
-    elbo_list.append(elbo)
-    return
+        if isinstance(trainer, HierachicalVAETrainer):
+            trainer.fit(epochs, train_loader, valid_loader, eval_evidence_acc=True)
+            mig, elbo = trainer.evaluate(test_loader, False, 0, with_evidence_acc=False)
+        else:
+            trainer.fit(epochs, train_loader, valid_loader)
+            mig, elbo = trainer.evaluate(test_loader, False, 0)
+
+        print("")
+        self.mig_list.append(mig)
+        self.elbo_list.append(elbo)
+
+    def get_results(self):
+        return self.mig_list, self.elbo_list
 
 
 def main():
     args = get_args()
     train, valid, test = get_data(args.seed)
-    train_loader = DataLoader(train, batch_size=128, shuffle=True)
-    valid_loader = DataLoader(valid, batch_size=128, shuffle=False)
-    test_loader = DataLoader(test, batch_size=128, shuffle=False)
+    loaders = {
+        "train": DataLoader(train, batch_size=128, shuffle=True),
+        "valid": DataLoader(valid, batch_size=128, shuffle=False),
+        "test": DataLoader(test, batch_size=128, shuffle=False),
+    }
 
-    hyperparam_kwargs = {
+    default_hyperparam_kwargs = {
         "z_dim": args.z_dim,
         "alpha": args.alpha,
         "temperature": args.temperature,
         "device": args.device,
     }
-    trainer_kwargs = {
-        "train_loader": train_loader,
-        "valid_loader": valid_loader,
-        "test_loader": test_loader,
-        "epochs": 31,  # TODO
+    trainer_kwargs = {**loaders, "epochs": args.epochs}
+
+    models = {
+        "ps": lambda beta: get_clearvae_trainer(
+            beta=beta, label_flipping=True, **default_hyperparam_kwargs
+        ),
+        "neg": lambda beta: get_clearvae_trainer(
+            beta=beta, label_flipping=False, **default_hyperparam_kwargs
+        ),
+        "bvae": lambda beta: get_clearvae_trainer(
+            beta=beta, label_flipping=None, **{**default_hyperparam_kwargs, "alpha": 0}
+        ),
+        "sepvae": lambda beta: get_sepvae_trainer(
+            beta=beta, la=1, **default_hyperparam_kwargs
+        ),
+        "mlvae": lambda beta: get_hierachical_vae_trainer(
+            beta=beta, z_dim=args.z_dim, group_mode="MLVAE", device=args.device
+        ),
+        "gvae": lambda beta: get_hierachical_vae_trainer(
+            beta=beta, z_dim=args.z_dim, group_mode="GVAE", device=args.device
+        ),
     }
 
-    ps_migs, neg_migs, bvae_migs, ml_migs, g_migs = [], [], [], [], []
-    sep_migs = []
-    ps_elbos, neg_elbos, bvae_elbos, ml_elbos, g_elbos = [], [], [], [], []
-    sep_elbos = []
+    results = {model: ExperimentHelper() for model in models}
+
     # iterate all beta
     for beta in BETAS:
-        hyperparam_kwargs["alpha"] = args.alpha
-        ps_trainer = get_clearvae_trainer(
-            beta=beta, label_flipping=True, **hyperparam_kwargs
-        )
-        neg_trainer = get_clearvae_trainer(
-            beta=beta, label_flipping=False, **hyperparam_kwargs
-        )
-        bvae_hyperparam_kwargs = hyperparam_kwargs.copy()
-        bvae_hyperparam_kwargs["alpha"] = 0
-        bvae_trainer = get_clearvae_trainer(
-            beta=beta, label_flipping=None, **bvae_hyperparam_kwargs
-        )
-        sep_hyperparam_kwargs = hyperparam_kwargs.copy()
-        sep_trainer = get_sepvae_trainer(beta=beta, la=1, **sep_hyperparam_kwargs)
-        ml_trainer = get_hierachical_vae_trainer(
-            beta=beta, z_dim=args.z_dim, group_mode="MLVAE", device=args.device
-        )
-        g_trainer = get_hierachical_vae_trainer(
-            beta=beta, z_dim=args.z_dim, group_mode="GVAE", device=args.device
-        )
+        for model, get_trainer in models.items():
+            trainer = get_trainer(beta)
+            results[model].run_experiment(
+                trainer,
+                loaders["train"],
+                loaders["valid"],
+                loaders["test"],
+                trainer_kwargs["epochs"],
+            )
 
-        _main_helper(ps_migs, ps_elbos, ps_trainer, **trainer_kwargs)
-        _main_helper(neg_migs, neg_elbos, neg_trainer, **trainer_kwargs)
-        _main_helper(bvae_migs, bvae_elbos, bvae_trainer, **trainer_kwargs)
-        _main_helper(sep_migs, sep_elbos, sep_trainer, **trainer_kwargs)
-
-        ml_trainer_kwargs = trainer_kwargs.copy()
-        ml_trainer_kwargs["with_evidence_acc"] = False
-        _main_helper_hierachical_vae(ml_migs, ml_elbos, ml_trainer, **ml_trainer_kwargs)
-
-        g_trainer_kwargs = trainer_kwargs.copy()
-        g_trainer_kwargs["with_evidence_acc"] = False
-        _main_helper_hierachical_vae(g_migs, g_elbos, g_trainer, **g_trainer_kwargs)
-
-    # save as csv
+    # Create DataFrame
     df_mig_elbo = pd.DataFrame(
         {
-            "model": ["ps" for _ in range(len(BETAS))]
-            + ["neg" for _ in range(len(BETAS))]
-            + ["bvae" for _ in range(len(BETAS))]
-            + ["mlvae" for _ in range(len(BETAS))]
-            + ["gvae" for _ in range(len(BETAS))]
-            + ["sepvae" for _ in range(len(BETAS))],
-            "beta": BETAS * 6,
-            "mig": ps_migs + neg_migs + bvae_migs + ml_migs + g_migs + sep_migs,
-            "elbo": ps_elbos + neg_elbos + bvae_elbos + ml_elbos + g_elbos + sep_elbos,
+            "model": [model for model in models for _ in BETAS],
+            "beta": BETAS * len(models),
+            "mig": [mig for model in models for mig in results[model].get_results()[0]],
+            "elbo": [
+                elbo for model in models for elbo in results[model].get_results()[1]
+            ],
         }
     )
+
     df_mig_elbo.to_csv(
         f"./expr_output/cmnist/mig_elbo_s{args.seed}_a{args.alpha}_z{args.z_dim}_t{args.temperature}.csv",
         index=False,
