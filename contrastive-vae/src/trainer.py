@@ -73,6 +73,23 @@ class Trainer:
         pass
 
 
+class VAETrainer(Trainer):
+    def __init__(
+        self,
+        vae: nn.Module,
+        optimizer: Optimizer,
+        verbose_period: int,
+        device: torch.device,
+        transform=None,
+    ) -> None:
+        super().__init__(vae, optimizer, verbose_period, device, transform)
+
+    def _valid(self, dataloader, verbose, epoch_id):
+        if verbose:
+            mig, elbo = self.evaluate(dataloader, verbose, epoch_id)
+            print(f"gMIG: {round(mig, 3)}; elbo: {round(float(elbo), 3)}")
+
+
 class DownstreamMLPTrainer(Trainer):
     def __init__(
         self,
@@ -213,7 +230,7 @@ class SimpleCNNTrainer(Trainer):
         return auc(all_logits, all_y), accurary(all_logits, all_y)
 
 
-class HierachicalVAETrainer(Trainer):
+class HierachicalVAETrainer(VAETrainer):
     def __init__(
         self,
         model: VAE,
@@ -283,12 +300,7 @@ class HierachicalVAETrainer(Trainer):
                     kl_s=float(_kl_s),
                 )
 
-    def _valid(self, dataloader, verbose, epoch_id, with_evidence_acc=False):
-        if verbose:
-            mig, elbo = self.evaluate(dataloader, verbose, epoch_id, with_evidence_acc)
-            print(f"gMIG: {round(mig, 3)}; elbo: {round(float(elbo), 3)}")
-
-    def evaluate(self, dataloader, verbose, epoch_id, with_evidence_acc):
+    def evaluate(self, dataloader, verbose, epoch_id, with_evidence_acc=False):
         vae: VAE = self.model
         vae.eval()
         device = self.device
@@ -337,7 +349,7 @@ class HierachicalVAETrainer(Trainer):
         return mig, elbo
 
 
-class CLEARVAETrainer(Trainer):
+class CLEARVAETrainer(VAETrainer):
     def __init__(
         self,
         model: VAE,
@@ -416,11 +428,6 @@ class CLEARVAETrainer(Trainer):
                     s_loss=float(_reverse_ntxent_loss),
                 )
         return
-
-    def _valid(self, dataloader, verbose, epoch_id):
-        if verbose:
-            mig, elbo = self.evaluate(dataloader, verbose, epoch_id)
-            print(f"gMIG: {round(mig, 3)}; elbo: {round(float(elbo), 3)}")
 
     def evaluate(self, dataloader, verbose, epoch_id):
         vae: VAE = self.model
@@ -517,7 +524,7 @@ def factor_shuffling(z: torch.Tensor, strategy: str = "permute_1"):
             raise ValueError("this strategy is not implemented yet")
 
 
-class SEPVAETrainer(Trainer):
+class SEPVAETrainer(VAETrainer):
     def __init__(
         self,
         model: VAE,
@@ -638,11 +645,6 @@ class SEPVAETrainer(Trainer):
                     mi_loss=float(_mi_loss),
                 )
 
-    def _valid(self, dataloader, verbose, epoch_id):
-        if verbose:
-            mig, elbo = self.evaluate(dataloader, verbose, epoch_id)
-            print(f"gMIG: {round(mig, 3)}; elbo: {round(float(elbo), 3)}")
-
     def evaluate(self, dataloader, verbose, epoch_id):
         vae = self.model
         factor_cls = self.factor_cls
@@ -681,6 +683,188 @@ class SEPVAETrainer(Trainer):
                 )
                 d_score = factor_cls(z)
                 _mi_loss = F.relu(torch.log(d_score / (1 - d_score))).mean()
+
+                total_reconstr_loss += _reconstr_loss
+                total_kl_c += _kl_c
+                total_kl_s += _kl_s
+                total_c_loss += _ntxent_loss
+                total_mi_loss += _mi_loss
+
+                all_label.append(label)
+                all_latent_c.append(z[:, : vae.z_dim])
+                all_latent_s.append(z[:, vae.z_dim :])
+        all_label, all_latent_c, all_latent_s = (
+            torch.cat(all_label),
+            torch.cat(all_latent_c),
+            torch.cat(all_latent_s),
+        )
+        mig = mutual_info_gap(all_label, all_latent_c, all_latent_s)
+        elbo = -float(total_reconstr_loss + total_kl_c + total_kl_s) / len(dataloader)
+
+        if verbose:
+            print(
+                "val_recontr_loss={:.3f}, val_kl_c={:.3f}, val_kl_s={:.3f}, val_c_loss={:.3f}, val_mi_loss={:.3f}".format(
+                    total_reconstr_loss / len(dataloader),
+                    total_kl_c / len(dataloader),
+                    total_kl_s / len(dataloader),
+                    total_c_loss / len(dataloader),
+                    total_mi_loss / len(dataloader),
+                )
+            )
+
+        return mig, elbo
+
+
+class MinEstimatedMIVAETrainer(VAETrainer):
+    def __init__(
+        self,
+        model: VAE,
+        mi_estimator: nn.Module,
+        optimizers: dict[str, Optimizer],
+        sim_fn: str,
+        hyperparameter: dict[str, float],
+        verbose_period: int,
+        device: torch.device,
+        transform=None,
+    ) -> None:
+        super().__init__(
+            model, optimizers["vae_optim"], verbose_period, device, transform
+        )
+        self.sim_fn = sim_fn
+        self.mi_estimator_optimizer = optimizers["mi_estimator_optim"]
+        self.mi_estimator = mi_estimator
+        self.hyperparameter = hyperparameter
+        self.annealer = LogisticAnnealer(
+            loc=hyperparameter["loc"],
+            scale=hyperparameter["scale"],
+            beta=hyperparameter["beta"],
+        )
+
+    def fit(
+        self,
+        epochs: int,
+        train_loader: DataLoader,
+        valid_loader: None | DataLoader = None,
+    ):
+        mi_losses, mi_learning_losses = [], []
+        for epoch in range(epochs):
+            verbose = (epoch % self.verbose_period) == 0
+            self._train(train_loader, verbose, epoch, mi_losses, mi_learning_losses)
+            if valid_loader is not None:
+                self._valid(valid_loader, verbose, epoch)
+        return mi_losses, mi_learning_losses
+
+    def _train(
+        self,
+        dataloader: DataLoader,
+        verbose: bool,
+        epoch_id: int,
+        mi_losses: list,
+        mi_learning_losses: list,
+    ):
+        vae = self.model
+        mi_estimator = self.mi_estimator
+        vae.train()
+        mi_estimator.train()
+        vae_optimizer = self.optimizer  # taking enc & dec params
+        mi_estimator_optimizer = (
+            self.mi_estimator_optimizer
+        )  # taking mi_estimator params
+        annealer = self.annealer
+        device = self.device
+        hyperparameter = self.hyperparameter
+        with tqdm(dataloader, unit="batch", mininterval=0, disable=not verbose) as bar:
+            bar.set_description(f"Epoch {epoch_id}")
+            for batch in bar:
+                X, label = batch[0], batch[1].reshape(-1).long()
+                X, label = X.to(device), label.to(device)
+                if self.transform:
+                    X = self.transform(X)
+
+                # vae training
+                X_hat, latent_params, z = vae(X, explicit=True)
+                vae_optimizer.zero_grad()
+                _reconstr_loss, _kl_c, _kl_s = vae_loss(X_hat, X, **latent_params)
+                _ntxent_loss = snn_loss(
+                    mu=latent_params["mu_c"],
+                    logvar=latent_params["logvar_c"],
+                    label=label,
+                    sim_fn=self.sim_fn,
+                    temperature=hyperparameter["temperature"],
+                )
+                _mi_loss = mi_estimator(z[:, : vae.z_dim], z[:, vae.z_dim :])
+                mi_losses.append(float(_mi_loss))
+
+                loss = (
+                    _reconstr_loss
+                    + annealer(_kl_c)
+                    + annealer(_kl_s)
+                    + hyperparameter["alpha"] * _ntxent_loss
+                    + hyperparameter["lambda"] * _mi_loss
+                )
+
+                loss.backward()
+                vae_optimizer.step()
+                annealer.step()
+
+                # learning mi_estimator
+                for j in range(5):
+                    _, _, z = vae(X, explicit=True)
+                    z = z.detach()
+                    _mi_learning_loss = mi_estimator.learning_loss(
+                        z[:, : vae.z_dim], z[:, vae.z_dim :]
+                    )
+                    mi_estimator_optimizer.zero_grad()
+                    _mi_learning_loss.backward()
+                    mi_estimator_optimizer.step()
+                    mi_learning_losses.append(float(_mi_learning_loss))
+
+                # logging
+                bar.set_postfix(
+                    recontr_loss=float(_reconstr_loss),
+                    kl_c=float(_kl_c),
+                    kl_s=float(_kl_s),
+                    c_loss=float(_ntxent_loss),
+                    mi_loss=float(_mi_loss),
+                )
+
+    def evaluate(self, dataloader, verbose, epoch_id):
+        vae = self.model
+        mi_estimator = self.mi_estimator
+        vae.eval()
+        mi_estimator.eval()
+        device = self.device
+        hyperparameter = self.hyperparameter
+        total_reconstr_loss, total_kl_c, total_kl_s, total_c_loss, total_mi_loss = (
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        )
+
+        all_label = []
+        all_latent_c = []
+        all_latent_s = []
+        with torch.no_grad():
+            for batch in tqdm(
+                dataloader, disable=not verbose, desc=f"val-epoch {epoch_id}"
+            ):
+                X, label = batch[0], batch[1].reshape(-1).long()
+                X, label = X.to(device), label.to(device)
+                if self.transform:
+                    X = self.transform(X)
+
+                X_hat, latent_params, z = vae(X, explicit=True)
+                _reconstr_loss, _kl_c, _kl_s = vae_loss(X_hat, X, **latent_params)
+                _ntxent_loss = snn_loss(
+                    mu=latent_params["mu_c"],
+                    logvar=latent_params["logvar_c"],
+                    label=label,
+                    sim_fn=self.sim_fn,
+                    temperature=hyperparameter["temperature"],
+                )
+                _mi_loss = mi_estimator(z[:, : vae.z_dim], z[:, vae.z_dim :])
 
                 total_reconstr_loss += _reconstr_loss
                 total_kl_c += _kl_c
