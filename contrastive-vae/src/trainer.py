@@ -529,7 +529,7 @@ def factor_shuffling(z: torch.Tensor, strategy: str = "permute_1"):
             raise ValueError("this strategy is not implemented yet")
 
 
-class SEPVAETrainer(VAETrainer):
+class ClearTCVAETrainer(VAETrainer):
     def __init__(
         self,
         model: VAE,
@@ -720,7 +720,7 @@ class SEPVAETrainer(VAETrainer):
         return mig, elbo
 
 
-class MinEstimatedMIVAETrainer(VAETrainer):
+class ClearMIMVAETrainer(VAETrainer):
     def __init__(
         self,
         model: VAE,

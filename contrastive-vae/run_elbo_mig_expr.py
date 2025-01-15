@@ -6,10 +6,18 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, random_split
 import torchvision
 from torchvision import transforms
-from src.model import VAE
-from src.trainer import CLEARVAETrainer, HierachicalVAETrainer, SEPVAETrainer
-from src.utils import StyledMNISTGenerator, StyledMNIST
 from corruption_utils import corruptions
+
+from src.model import VAE
+from src.trainer import (
+    CLEARVAETrainer,
+    HierachicalVAETrainer,
+    ClearTCVAETrainer,
+    ClearMIMVAETrainer,
+)
+from src.utils import StyledMNISTGenerator, StyledMNIST
+from src.models.mi_estimator import *  # noqa 403
+
 
 CORRUPTION_FNS = {
     corruptions.identity: 0.15,
@@ -20,7 +28,7 @@ CORRUPTION_FNS = {
     corruptions.brightness: 0.2,
 }
 # BETAS = [1 / 32, 1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8]
-BETAS = [1]
+BETAS = [1 / 8]
 
 
 def get_args():
@@ -99,7 +107,7 @@ def get_clearvae_trainer(beta, label_flipping, z_dim, alpha, temperature, device
     return trainer
 
 
-def get_sepvae_trainer(beta, la, z_dim, alpha, temperature, device):
+def get_cleartcvae_trainer(beta, la, z_dim, alpha, temperature, device):
     vae = VAE(total_z_dim=z_dim).to(device)
     factor_cls = nn.Sequential(
         nn.Linear(z_dim, z_dim),
@@ -109,7 +117,7 @@ def get_sepvae_trainer(beta, la, z_dim, alpha, temperature, device):
     ).to(device)
     vae_optimizer = torch.optim.Adam(vae.parameters(), lr=5e-4)
     factor_optimizer = torch.optim.Adam(factor_cls.parameters(), lr=1e-4)
-    trainer = SEPVAETrainer(
+    trainer = ClearTCVAETrainer(
         vae,
         factor_cls,
         optimizers={"vae_optim": vae_optimizer, "factor_optim": factor_optimizer},
@@ -120,6 +128,35 @@ def get_sepvae_trainer(beta, la, z_dim, alpha, temperature, device):
             "beta": beta,
             "loc": 0,
             "scale": 1,
+            "lambda": la,
+        },
+        verbose_period=5,
+        device=device,
+    )
+    return trainer
+
+
+def get_clearmimvae_trainer(
+    beta, mi_estimator: str, la, z_dim, alpha, temperature, device
+):
+    vae = VAE(total_z_dim=z_dim).to(device)
+    mi_estimator = eval(mi_estimator)(x_dim=8, y_dim=8, hidden_size=16).to(device)
+    vae_optimizer = torch.optim.Adam(vae.parameters(), lr=5e-4)
+    mi_estimator_optimizer = torch.optim.Adam(mi_estimator.parameters(), lr=1e-4)
+    trainer = ClearMIMVAETrainer(
+        vae,
+        mi_estimator,
+        optimizers={
+            "vae_optim": vae_optimizer,
+            "mi_estimator_optim": mi_estimator_optimizer,
+        },
+        sim_fn="cosine",
+        hyperparameter={
+            "temperature": temperature,
+            "beta": beta,
+            "loc": 0,
+            "scale": 1,
+            "alpha": alpha,
             "lambda": la,
         },
         verbose_period=5,
@@ -176,17 +213,23 @@ def main():
     trainer_kwargs = {**loaders, "epochs": args.epochs}
 
     models = {
-        "ps": lambda beta: get_clearvae_trainer(
+        "clear-ps": lambda beta: get_clearvae_trainer(
             beta=beta, label_flipping=True, **default_hyperparam_kwargs
         ),
-        "neg": lambda beta: get_clearvae_trainer(
+        "clear-neg": lambda beta: get_clearvae_trainer(
             beta=beta, label_flipping=False, **default_hyperparam_kwargs
         ),
         "bvae": lambda beta: get_clearvae_trainer(
             beta=beta, label_flipping=None, **{**default_hyperparam_kwargs, "alpha": 0}
         ),
-        "sepvae": lambda beta: get_sepvae_trainer(
+        "clear-tc": lambda beta: get_cleartcvae_trainer(
             beta=beta, la=1, **default_hyperparam_kwargs
+        ),
+        "clear-mim (L1OutUB)": lambda beta: get_clearmimvae_trainer(
+            beta=beta, mi_estimator="L1OutUB", la=3, **default_hyperparam_kwargs
+        ),
+        "clear-mim (CLUB-S)": lambda beta: get_clearmimvae_trainer(
+            beta=beta, mi_estimator="CLUBSample", la=3, **default_hyperparam_kwargs
         ),
         "mlvae": lambda beta: get_hierachical_vae_trainer(
             beta=beta, z_dim=args.z_dim, group_mode="MLVAE", device=args.device
@@ -200,6 +243,13 @@ def main():
 
     # iterate all beta
     for beta in BETAS:
+        print(
+            f"""
+            ************************************************\n
+            BETA: {beta} \n
+            ************************************************\n
+        """
+        )
         for model, get_trainer in models.items():
             trainer = get_trainer(beta)
             results[model].run_experiment(
@@ -223,7 +273,7 @@ def main():
     )
 
     df_mig_elbo.to_csv(
-        f"./expr_output/cmnist/mig_elbo_s{args.seed}_a{args.alpha}_z{args.z_dim}_t{args.temperature}.csv",
+        f"./expr_output/styled-mnist/mig_elbo_s{args.seed}_a{args.alpha}_z{args.z_dim}_t{args.temperature}.csv",
         index=False,
     )
 

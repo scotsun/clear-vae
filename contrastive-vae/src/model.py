@@ -3,6 +3,9 @@
 import torch
 import torch.nn as nn
 
+import models.resnet_decoder as dec
+import models.resnet_encoder as enc
+
 
 class SimpleCNNClassifier(nn.Module):
     def __init__(self, n_class: int = 10, in_channel: int = 1) -> None:
@@ -202,6 +205,23 @@ class VAE64(VAE):
             nn.BatchNorm2d(in_channel),
             nn.Sigmoid(),
         )
+
+
+class ResNetVAE(nn.Module):
+    def __init__(self, total_z_dim, in_channel: int = 1, group_mode: str | None = None):
+        super().__init__()
+        self.mode = group_mode
+        self.z_dim = int(total_z_dim / 2)
+        # encoder
+        self.encoder = enc.ResNet(
+            enc.Bottleneck, [3, 4, 6, 3], in_channel=in_channel, return_indices=True
+        )
+        self.mu_c = nn.Linear(2048, self.z_dim)
+        self.logvar_c = nn.Linear(2048, self.z_dim)
+        self.mu_s = nn.Linear(2048, self.z_dim)
+        self.logvar_s = nn.Linear(2048, self.z_dim)
+        # decoder
+        self.decoder = dec.ResNet(dec.Bottleneck, [3, 6, 4, 3], out_channel=in_channel)
 
 
 def accumulate_group_evidence(

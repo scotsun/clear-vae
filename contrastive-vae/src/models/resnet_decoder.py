@@ -1,5 +1,4 @@
-from functools import partial
-from typing import Any, Callable, List, Optional, Type, Union
+from typing import Callable, List, Optional
 
 import torch
 import torch.nn as nn
@@ -109,6 +108,7 @@ class ResNet(nn.Module):
         self,
         block,
         layers: List[int],
+        out_channel: int,
         zero_init_residual: bool = False,
         groups: int = 1,
         width_per_group: int = 64,
@@ -125,10 +125,16 @@ class ResNet(nn.Module):
         self.groups = groups
         self.base_width = width_per_group
         self.de_conv1 = nn.ConvTranspose2d(
-            64, 3, kernel_size=7, stride=2, padding=3, output_padding=1, bias=False
+            64,
+            out_channel,
+            kernel_size=7,
+            stride=2,
+            padding=3,
+            output_padding=1,
+            bias=False,
         )
         self.unpool = nn.MaxUnpool2d(kernel_size=2, stride=2)
-        self.bn1 = norm_layer(3)
+        self.bn1 = norm_layer(out_channel)
         self.relu = nn.ReLU(inplace=True)
         self.unsample = nn.Upsample(size=7, mode="nearest")
 
@@ -155,8 +161,6 @@ class ResNet(nn.Module):
             for m in self.modules():
                 if isinstance(m, Bottleneck) and m.bn3.weight is not None:
                     nn.init.constant_(m.bn3.weight, 0)  # type: ignore[arg-type]
-                # elif isinstance(m, BasicBlock) and m.bn2.weight is not None:
-                #     nn.init.constant_(m.bn2.weight, 0)  # type: ignore[arg-type]
 
     def _make_layer(
         self,
@@ -241,13 +245,3 @@ class ResNet(nn.Module):
         if indices is None:
             return self._forward_cnns_only(x)
         return self._forward_impl(x, indices)
-
-
-if __name__ == "__main__":
-    # image size: [64, 3, 224, 224]
-    # feature size: [64, 2048]
-    resnet50 = ResNet(Bottleneck, [3, 23, 4, 3])
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    resnet50.to(device)
-    out = resnet50(torch.randn(2, 2048, 1, 1).to(device))
-    print(out.shape)

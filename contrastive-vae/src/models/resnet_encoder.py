@@ -1,5 +1,4 @@
-from functools import partial
-from typing import Any, Callable, List, Optional, Type, Union
+from typing import Callable, List, Optional
 
 import torch
 import torch.nn as nn
@@ -72,11 +71,9 @@ class Bottleneck(nn.Module):
         out = self.conv1(x)
         out = self.bn1(out)
         out = self.relu(out)
-
         out = self.conv2(out)
         out = self.bn2(out)
         out = self.relu(out)
-
         out = self.conv3(out)
         out = self.bn3(out)
 
@@ -94,6 +91,7 @@ class ResNet(nn.Module):
         self,
         block,
         layers: List[int],
+        in_channel: int,
         zero_init_residual: bool = False,
         groups: int = 1,
         width_per_group: int = 64,
@@ -120,7 +118,7 @@ class ResNet(nn.Module):
         self.groups = groups
         self.base_width = width_per_group
         self.conv1 = nn.Conv2d(
-            3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False
+            in_channel, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False
         )
         self.bn1 = norm_layer(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
@@ -228,16 +226,3 @@ class ResNet(nn.Module):
 
     def forward(self, x: Tensor) -> Tensor:
         return self._forward_impl(x)
-
-
-if __name__ == "__main__":
-    # image size: [64, 3, 224, 224]
-    # feature size: [64, 2048]
-    resnet50 = ResNet(Bottleneck, [3, 4, 6, 3], return_indices=True)
-    # resnet101 = ResNet(Bottleneck, [3, 4, 23, 3])
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    resnet50.to(device)
-
-    # test_input = torch.rand(2, 3, 224, 224).to(device)
-    # out, indices = resnet50(test_input)
-    # print(out.shape, len(indices))
