@@ -14,7 +14,7 @@ from src.losses import (
     accurary,
     mutual_info_gap,
 )
-from src.model import VAE
+from src.models.vae import VAE
 
 
 class LogisticAnnealer:

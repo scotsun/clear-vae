@@ -8,7 +8,7 @@ import torchvision
 from torchvision import transforms
 from corruption_utils import corruptions
 
-from src.model import VAE
+from src.models.vae import VAE
 from src.trainer import (
     CLEARVAETrainer,
     HierachicalVAETrainer,

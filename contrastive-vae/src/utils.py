@@ -14,7 +14,7 @@ from torchvision.utils import make_grid
 
 
 from corruption_utils import corruptions
-from src.model import VAE
+from src.models.vae import VAE
 
 
 def interpolate_latent(latent1, latent2, num_steps):

@@ -6,7 +6,8 @@ from torch.utils.data import DataLoader, random_split
 import json
 from expr.expr_utils import generate_style_dict, KStyledMNISTGenerator, KStyledMNIST
 from corruption_utils import corruptions
-from src.model import SimpleCNNClassifier, VAE
+from src.models.vae import VAE
+from src.models.cnn import SimpleCNNClassifier
 from src.trainer import (
     SimpleCNNTrainer,
     HierachicalVAETrainer,
