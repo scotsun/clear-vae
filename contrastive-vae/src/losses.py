@@ -96,9 +96,15 @@ def pairwise_jeffrey_div(mu: torch.Tensor, logvar: torch.Tensor):
 
 
 def pairwise_mahalanobis_dis(mu: torch.Tensor, logvar: torch.Tensor):
-    var = logvar.exp()
+    var = 0.5 * (logvar.exp()[None, :, :] + logvar.exp()[:, None, :])
     dis_mat = ((mu[None, :, :] - mu[:, None, :]) ** 2 / var).sum(dim=-1)
-    return -0.5 * (dis_mat + dis_mat.T)
+    return -dis_mat
+
+
+def pairwise_modified_l2_dis(mu: torch.Tensor, logvar: torch.Tensor):
+    var = (0.5 * (logvar[None, :, :] + logvar[:, None, :])).exp()
+    dis_mat = ((mu[None, :, :] - mu[:, None, :]) ** 2 / var).sum(dim=-1)
+    return -dis_mat
 
 
 @jit.script
@@ -141,6 +147,8 @@ def snn_loss(
             sim = pairwise_cosine(mu)
         case "l2":
             sim = pairwise_l2(mu)
+        case "modified_l2":
+            sim = pairwise_modified_l2_dis(mu, logvar)
         case "jeffrey":
             sim = pairwise_jeffrey_div(mu, logvar)
         case "mahalanobis":

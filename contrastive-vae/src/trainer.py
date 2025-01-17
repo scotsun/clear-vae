@@ -417,8 +417,8 @@ class CLEARVAETrainer(VAETrainer):
                     _reconstr_loss
                     + annealer(_kl_c)
                     + annealer(_kl_s)
-                    + alpha[0] * _ntxent_loss
-                    + alpha[1] * _reverse_ntxent_loss
+                    + alpha * _ntxent_loss
+                    + alpha * _reverse_ntxent_loss
                 )
 
                 loss.backward()
