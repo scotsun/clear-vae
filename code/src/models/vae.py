@@ -106,8 +106,10 @@ class VAE(nn.Module):
 
 
 class VAE64(VAE):
-    def __init__(self, total_z_dim, in_channel: int = 3) -> None:
-        super().__init__(total_z_dim=total_z_dim, in_channel=in_channel)
+    def __init__(
+        self, total_z_dim, in_channel: int = 3, group_mode: str | None = None
+    ) -> None:
+        super().__init__(total_z_dim, in_channel, group_mode)
 
         self.z_dim = int(total_z_dim / 2)
         # encoder

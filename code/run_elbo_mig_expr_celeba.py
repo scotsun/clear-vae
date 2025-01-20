@@ -97,6 +97,7 @@ def main():
     }
 
     default_hyperparam_kwargs = {
+        "vae_lr": 3e-5,
         "z_dim": args.z_dim,
         "alpha": args.alpha,
         "temperature": args.temperature,
@@ -116,16 +117,23 @@ def main():
             beta=beta, label_flipping=None, **{**default_hyperparam_kwargs, "alpha": 0}
         ),
         "clear-tc": lambda beta: get_cleartcvae_trainer(
-            beta=beta, la=1, **default_hyperparam_kwargs
+            beta=beta, la=1, **{**default_hyperparam_kwargs, "factor_cls_lr": 1e-4}
         ),
         "clear-mim (L1OutUB)": lambda beta: get_clearmimvae_trainer(
-            beta=beta, mi_estimator="L1OutUB", la=3, **default_hyperparam_kwargs
+            beta=beta,
+            mi_estimator="L1OutUB",
+            la=3,
+            **{**default_hyperparam_kwargs, "mi_estimator_lr": 2e-3},
         ),
         "clear-mim (CLUB-S)": lambda beta: get_clearmimvae_trainer(
-            beta=beta, mi_estimator="CLUBSample", la=3, **default_hyperparam_kwargs
+            beta=beta,
+            mi_estimator="CLUBSample",
+            la=3,
+            **{**default_hyperparam_kwargs, "mi_estimator_lr": 2e-3},
         ),
         "mlvae": lambda beta: get_hierachical_vae_trainer(
             beta=beta,
+            vae_lr=3e-5,
             z_dim=args.z_dim,
             group_mode="MLVAE",
             device=args.device,
@@ -133,6 +141,7 @@ def main():
         ),
         "gvae": lambda beta: get_hierachical_vae_trainer(
             beta=beta,
+            vae_lr=3e-5,
             z_dim=args.z_dim,
             group_mode="GVAE",
             device=args.device,

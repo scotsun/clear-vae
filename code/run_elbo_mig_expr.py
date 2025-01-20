@@ -142,10 +142,20 @@ def main():
             **{**default_hyperparam_kwargs, "mi_estimator_lr": 2e-3},
         ),
         "mlvae": lambda beta: get_hierachical_vae_trainer(
-            beta=beta, z_dim=args.z_dim, group_mode="MLVAE", device=args.device
+            beta=beta,
+            vae_lr=5e-4,
+            z_dim=args.z_dim,
+            group_mode="MLVAE",
+            device=args.device,
+            vae_arch="VAE",
         ),
         "gvae": lambda beta: get_hierachical_vae_trainer(
-            beta=beta, z_dim=args.z_dim, group_mode="GVAE", device=args.device
+            beta=beta,
+            vae_lr=5e-4,
+            z_dim=args.z_dim,
+            group_mode="GVAE",
+            device=args.device,
+            vae_arch="VAE",
         ),
     }
 
