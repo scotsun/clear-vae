@@ -73,7 +73,7 @@ class ExperimentHelper:
         print(f"----------{type(trainer)}------------")
 
         if isinstance(trainer, HierachicalVAETrainer):
-            trainer.fit(epochs, train_loader, valid_loader, eval_evidence_acc=True)
+            trainer.fit(epochs, train_loader, valid_loader, eval_evidence_acc=False)
             mig, elbo = trainer.evaluate(test_loader, False, 0, with_evidence_acc=False)
         else:
             trainer.fit(epochs, train_loader, valid_loader)
