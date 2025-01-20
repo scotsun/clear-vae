@@ -4,10 +4,9 @@ import numpy as np
 import pandas as pd
 from PIL import Image
 
-import torch
 import torchvision
 import torchvision.transforms as transforms
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, random_split
 from tqdm import tqdm
 from corruption_utils import corruptions
 
@@ -79,9 +78,10 @@ class StyledMNIST(Dataset):
 
 
 ATTR_TO_COLUMN = {
+    "blurry": 10,
     "male": 20,
     "smiling": 31,
-    "bold": 4,
+    "young": -1,
     "black hair": 8,
     "blond hair": 9,
     "brown hair": 11,
@@ -89,20 +89,18 @@ ATTR_TO_COLUMN = {
 }
 
 HAIRCOLOR_IDS = [
-    ATTR_TO_COLUMN[c]
-    for c in ["bold", "black hair", "blond hair", "brown hair", "gray hair"]
+    ATTR_TO_COLUMN[c] for c in ["black hair", "blond hair", "brown hair", "gray hair"]
 ]
 
-ATTR_TO_CONTENT_LABEL = {
-    # (male, smiling): content label
+ATTR_TO_GENDERSMILE_LABEL = {
+    # (male, smiling)
     (1, 1): 0,
     (1, 0): 1,
     (0, 1): 2,
     (0, 0): 3,
 }
 
-ATTR_TO_STYLE_LABEL = {
-    "bold": 0,
+ATTR_TO_HAIRCOLOR_LABEL = {
     "black hair": 1,
     "blond hair": 2,
     "brown hair": 3,
@@ -110,17 +108,25 @@ ATTR_TO_STYLE_LABEL = {
 }
 
 
-def generate_celeba_labels(attr: torch.Tensor):
-    # get content label
-    content = ATTR_TO_CONTENT_LABEL[
+def generate_celeba_labels(attr):
+    gendersmile = ATTR_TO_GENDERSMILE_LABEL[
         (int(attr[ATTR_TO_COLUMN["male"]]), int(attr[ATTR_TO_COLUMN["smiling"]]))
     ]
-    # get style label
-    style = attr[HAIRCOLOR_IDS].argmax()
+    hair = attr[HAIRCOLOR_IDS].argmax()
     # argmax will break ties in favor of the first item
-    # so if a person is bold and has other color, he/she will be labeled as bold
+    return gendersmile, hair
 
-    return content, style
+
+def get_process_celeba_dataloaders(celeba, splits: list[float]) -> tuple:
+    celeba_selected = []
+    for img, attr in tqdm(celeba):
+        if attr[HAIRCOLOR_IDS].sum() > 0 and attr[ATTR_TO_COLUMN["blurry"]] == 0:
+            celeba_selected.append((img, *generate_celeba_labels(attr)))
+        else:
+            continue
+
+    train, valid, test = random_split(celeba_selected, splits)
+    return train, valid, test
 
 
 class CheXpert(Dataset):

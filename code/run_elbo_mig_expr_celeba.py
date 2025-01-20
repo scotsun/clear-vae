@@ -2,10 +2,9 @@ import argparse
 import numpy as np
 import pandas as pd
 import torch
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader
 import torchvision
 from torchvision import transforms
-from corruption_utils import corruptions
 
 from src.utils.trainer_utils import (
     get_clearvae_trainer,
@@ -13,24 +12,17 @@ from src.utils.trainer_utils import (
     get_clearmimvae_trainer,
     get_hierachical_vae_trainer,
 )
+from src.utils.data_utils import get_process_celeba_dataloaders
 from src.trainer import HierachicalVAETrainer
-from src.utils.data_utils import StyledMNISTGenerator, StyledMNIST
 
 
-CORRUPTION_FNS = {
-    corruptions.identity: 0.15,
-    corruptions.stripe: 0.2,
-    corruptions.zigzag: 0.25,
-    corruptions.canny_edges: 0.1,
-    lambda x: corruptions.scale(x, 5): 0.1,
-    corruptions.brightness: 0.2,
-}
 # BETAS = [1 / 32, 1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8]
 BETAS = [1 / 8]
 
 
 def get_args():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--data_root_path", type=str, help="root path of the dataset")
     parser.add_argument(
         "--seed", type=int, default=101, help="random seed; default 101"
     )
@@ -53,18 +45,16 @@ def get_args():
     return parser.parse_args()
 
 
-def get_data(seed):
+def get_data(path, seed):
     # set random seed
     np.random.seed(seed)
     torch.manual_seed(seed)
     # generate data
-    mnist = torchvision.datasets.MNIST("../data", train=True, download=True)
-    generator = StyledMNISTGenerator(mnist, CORRUPTION_FNS)
-    dataset = StyledMNIST(
-        generator, transforms.Compose([transforms.ToTensor(), lambda img: img / 255.0])
+    transform = transforms.Compose([transforms.Resize((64, 64)), transforms.ToTensor()])
+    celeba = torchvision.datasets.CelebA(
+        path, split="train", target_type="attr", transform=transform, download=True
     )
-    train, valid, test = random_split(dataset, [40_000, 10_000, 10_000])
-    return train, valid, test
+    return get_process_celeba_dataloaders(celeba, [0.8, 0.1, 0.1])
 
 
 class ExperimentHelper:
@@ -99,7 +89,7 @@ class ExperimentHelper:
 
 def main():
     args = get_args()
-    train, valid, test = get_data(args.seed)
+    train, valid, test = get_data(args.data_root_path, args.seed)
     loaders = {
         "train": DataLoader(train, batch_size=128, shuffle=True),
         "valid": DataLoader(valid, batch_size=128, shuffle=False),
@@ -111,6 +101,7 @@ def main():
         "alpha": args.alpha,
         "temperature": args.temperature,
         "device": args.device,
+        "vae_arch": "VAE64",
     }
     trainer_kwargs = {**loaders, "epochs": args.epochs}
 
@@ -134,10 +125,18 @@ def main():
             beta=beta, mi_estimator="CLUBSample", la=3, **default_hyperparam_kwargs
         ),
         "mlvae": lambda beta: get_hierachical_vae_trainer(
-            beta=beta, z_dim=args.z_dim, group_mode="MLVAE", device=args.device
+            beta=beta,
+            z_dim=args.z_dim,
+            group_mode="MLVAE",
+            device=args.device,
+            vae_arch="VAE64",
         ),
         "gvae": lambda beta: get_hierachical_vae_trainer(
-            beta=beta, z_dim=args.z_dim, group_mode="GVAE", device=args.device
+            beta=beta,
+            z_dim=args.z_dim,
+            group_mode="GVAE",
+            device=args.device,
+            vae_arch="VAE64",
         ),
     }
 
@@ -175,7 +174,7 @@ def main():
     )
 
     df_mig_elbo.to_csv(
-        f"./expr_output/styled-mnist/mig_elbo_s{args.seed}_a{args.alpha}_z{args.z_dim}_t{args.temperature}.csv",
+        f"./expr_output/celeba/mig_elbo_s{args.seed}_a{args.alpha}_z{args.z_dim}_t{args.temperature}.csv",
         index=False,
     )
 
