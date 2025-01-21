@@ -24,6 +24,7 @@ from src.utils.data_utils import get_process_celeba
 
 def get_args():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--data_root_path", type=str, help="root path of the dataset")
     parser.add_argument(
         "--epochs",
         type=int,
@@ -45,23 +46,27 @@ def get_args():
     return parser.parse_args()
 
 
-def get_data_splits(celeba_path, k: int, seed: int):
-    """
-    Generate data splits and style dictionaries for k styled CelebA dataset
-    """
-    np.random.seed(seed)
-    torch.manual_seed(seed)
+def get_data(data_root_path):
     transform = transforms.Compose([transforms.Resize((64, 64)), transforms.ToTensor()])
     celeba = torchvision.datasets.CelebA(
-        celeba_path,
+        data_root_path,
         split="train",
         target_type="attr",
         transform=transform,
         download=True,
     )
-    celeba_selected = get_process_celeba(celeba)
+    celeba = get_process_celeba(celeba)
+    return celeba
+
+
+def get_data_splits(celeba, k: int, seed: int):
+    """
+    Generate data splits and style dictionaries for k styled CelebA dataset
+    """
+    np.random.seed(seed)
+    torch.manual_seed(seed)
     train, test, style_dict = kceleba_train_test_split(
-        celeba_data=celeba_selected, k=k, seed=seed
+        celeba_data=celeba, k=k, seed=seed
     )
     train, valid = random_split(train, [0.85, 0.15])
     return style_dict, train, valid, test
@@ -105,9 +110,9 @@ def experiment_helper(
     return aupr_scores, auroc_scores, acc
 
 
-def experiment(k, seed, trainer_kwargs, epochs):
+def experiment(celeba, k, seed, trainer_kwargs, epochs):
     print(f"Experiment: k={k}, seed={seed}")
-    _, train, valid, test = get_data_splits(k=k, seed=seed)
+    _, train, valid, test = get_data_splits(celeba, k=k, seed=seed)
     train_loader = DataLoader(train, batch_size=128, shuffle=True)
     valid_loader = DataLoader(valid, batch_size=128, shuffle=False)
     test_loader = DataLoader(test, batch_size=128, shuffle=False)
@@ -125,6 +130,7 @@ def experiment(k, seed, trainer_kwargs, epochs):
             get_hierachical_vae_trainer,
             {
                 "beta": trainer_kwargs["beta"],
+                "vae_lr": trainer_kwargs["vae_lr"],
                 "z_dim": trainer_kwargs["z_dim"],
                 "group_mode": "GVAE",
                 "device": trainer_kwargs["device"],
@@ -135,6 +141,7 @@ def experiment(k, seed, trainer_kwargs, epochs):
             get_hierachical_vae_trainer,
             {
                 "beta": trainer_kwargs["beta"],
+                "vae_lr": trainer_kwargs["vae_lr"],
                 "z_dim": trainer_kwargs["z_dim"],
                 "group_mode": "MLVAE",
                 "device": trainer_kwargs["device"],
@@ -145,14 +152,27 @@ def experiment(k, seed, trainer_kwargs, epochs):
             get_clearvae_trainer,
             {"label_flipping": True, **trainer_kwargs},
         ),
-        "clear-tc": (get_cleartcvae_trainer, {"la": 1, **trainer_kwargs}),
+        "clear-tc": (
+            get_cleartcvae_trainer,
+            {"la": 1, "factor_cls_lr": 1e-4, **trainer_kwargs},
+        ),
         "clear-mim (L1OutUB)": (
             get_clearmimvae_trainer,
-            {"mi_estimator": "L1OutUB", "la": 3, **trainer_kwargs},
+            {
+                "mi_estimator": "L1OutUB",
+                "la": 3,
+                "mi_estimator_lr": 2e-3,
+                **trainer_kwargs,
+            },
         ),
         "clear-mim (CLUB-S)": (
             get_clearmimvae_trainer,
-            {"mi_estimator": "CLUBSample", "la": 3, **trainer_kwargs},
+            {
+                "mi_estimator": "CLUBSample",
+                "la": 3,
+                "mi_estimator_lr": 2e-3,
+                **trainer_kwargs,
+            },
         ),
     }
 
@@ -196,10 +216,12 @@ def experiment(k, seed, trainer_kwargs, epochs):
 
 def main():
     args = get_args()
+    celeba = get_data(args.data_root_path)
     seed = int(np.random.randint(0, 1000))
     trainer_kwargs = {
         "beta": 1 / 32,
         "vae_arch": "VAE64",
+        "vae_lr": 3e-5,
         "z_dim": 64,
         "alpha": args.alpha,
         "temperature": args.temperature,
@@ -207,6 +229,7 @@ def main():
     }
     for k in range(1, 4):
         experiment(
+            celeba,
             k=k,
             seed=seed,
             trainer_kwargs=trainer_kwargs,

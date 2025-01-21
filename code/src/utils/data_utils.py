@@ -117,7 +117,7 @@ def generate_celeba_labels(attr):
     return gendersmile, hair
 
 
-def get_process_celeba(celeba) -> tuple:
+def get_process_celeba(celeba) -> list:
     celeba_selected = []
     for img, attr in tqdm(celeba):
         if attr[HAIRCOLOR_IDS].sum() > 0 and attr[ATTR_TO_COLUMN["blurry"]] == 0:
