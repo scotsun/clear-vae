@@ -6,7 +6,7 @@ from PIL import Image
 
 import torchvision
 import torchvision.transforms as transforms
-from torch.utils.data import Dataset, random_split
+from torch.utils.data import Dataset
 from tqdm import tqdm
 from corruption_utils import corruptions
 
@@ -117,16 +117,14 @@ def generate_celeba_labels(attr):
     return gendersmile, hair
 
 
-def get_process_celeba_dataloaders(celeba, splits: list[float]) -> tuple:
+def get_process_celeba(celeba) -> tuple:
     celeba_selected = []
     for img, attr in tqdm(celeba):
         if attr[HAIRCOLOR_IDS].sum() > 0 and attr[ATTR_TO_COLUMN["blurry"]] == 0:
             celeba_selected.append((img, *generate_celeba_labels(attr)))
         else:
             continue
-
-    train, valid, test = random_split(celeba_selected, splits)
-    return train, valid, test
+    return celeba_selected
 
 
 class CheXpert(Dataset):

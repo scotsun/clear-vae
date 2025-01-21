@@ -6,8 +6,7 @@ import torchvision
 import torchvision.transforms as transforms
 from torch.utils.data import DataLoader, random_split
 import json
-from expr.expr_utils import generate_style_dict, KStyledMNISTGenerator, KStyledMNIST
-from corruption_utils import corruptions
+from expr.expr_utils import kceleba_train_test_split
 
 from src.utils.trainer_utils import (
     get_cnn_trainer,
@@ -20,16 +19,7 @@ from src.trainer import (
     DownstreamMLPTrainer,
     VAETrainer,
 )
-
-
-style_fns = [
-    corruptions.identity,
-    corruptions.stripe,
-    corruptions.zigzag,
-    corruptions.canny_edges,
-    lambda x: corruptions.scale(x, 5),
-    corruptions.brightness,
-]
+from src.utils.data_utils import get_process_celeba
 
 
 def get_args():
@@ -55,39 +45,25 @@ def get_args():
     return parser.parse_args()
 
 
-def get_data_splits(k: int, seed: int):
+def get_data_splits(celeba_path, k: int, seed: int):
     """
-    Generate data splits and style dictionaries for k styled MNIST dataset
-
-    Parameters:
-        k (int): The number of styles to generate for each class
-        seed (int): The random seed for reproducibility
-
-    Returns:
-        style_dict (dict): A dictionary containing the style information for each class
-        train (k styled MNIST)
-        valid (k styled MNIST)
-        test (m-k styled MNIST)
+    Generate data splits and style dictionaries for k styled CelebA dataset
     """
     np.random.seed(seed)
     torch.manual_seed(seed)
-    mnist = torchvision.datasets.MNIST("../data", train=True)
-    mnist_train, mnist_test = random_split(mnist, [50000, 10000])
-    style_dict = generate_style_dict(
-        classes=list(range(10)), styles=list(range(len(style_fns))), k=k
+    transform = transforms.Compose([transforms.Resize((64, 64)), transforms.ToTensor()])
+    celeba = torchvision.datasets.CelebA(
+        celeba_path,
+        split="train",
+        target_type="attr",
+        transform=transform,
+        download=True,
     )
-    mnist_generator = KStyledMNISTGenerator(mnist_train, style_fns, style_dict, "train")
-    train = KStyledMNIST(
-        mnist_generator,
-        transforms.Compose([transforms.ToTensor(), lambda img: img / 255.0]),
+    celeba_selected = get_process_celeba(celeba)
+    train, test, style_dict = kceleba_train_test_split(
+        celeba_data=celeba_selected, k=k, seed=seed
     )
-    mnist_generator = KStyledMNISTGenerator(mnist_test, style_fns, style_dict, "test")
-    test = KStyledMNIST(
-        mnist_generator,
-        transforms.Compose([transforms.ToTensor(), lambda img: img / 255.0]),
-    )
-    train_size = int(0.85 * len(train))
-    train, valid = random_split(train, [train_size, len(train) - train_size])
+    train, valid = random_split(train, [0.85, 0.15])
     return style_dict, train, valid, test
 
 
@@ -139,53 +115,44 @@ def experiment(k, seed, trainer_kwargs, epochs):
     models = {
         "baseline": (
             get_cnn_trainer,
-            {"n_class": 10, "device": trainer_kwargs["device"]},
+            {
+                "n_class": 10,
+                "device": trainer_kwargs["device"],
+                "cnn_arch": "SimpleCNN64Classifier",
+            },
         ),
         "gvae": (
             get_hierachical_vae_trainer,
             {
                 "beta": trainer_kwargs["beta"],
-                "vae_lr": 5e-4,
                 "z_dim": trainer_kwargs["z_dim"],
                 "group_mode": "GVAE",
                 "device": trainer_kwargs["device"],
+                "vae_arch": trainer_kwargs["vae_arch"],
             },
         ),
         "mlvae": (
             get_hierachical_vae_trainer,
             {
                 "beta": trainer_kwargs["beta"],
-                "vae_lr": 5e-4,
                 "z_dim": trainer_kwargs["z_dim"],
                 "group_mode": "MLVAE",
                 "device": trainer_kwargs["device"],
+                "vae_arch": trainer_kwargs["vae_arch"],
             },
         ),
         "clear": (
             get_clearvae_trainer,
             {"label_flipping": True, **trainer_kwargs},
         ),
-        "clear-tc": (
-            get_cleartcvae_trainer,
-            {"la": 1, "factor_cls_lr": 1e-4, **trainer_kwargs},
-        ),
+        "clear-tc": (get_cleartcvae_trainer, {"la": 1, **trainer_kwargs}),
         "clear-mim (L1OutUB)": (
             get_clearmimvae_trainer,
-            {
-                "mi_estimator": "L1OutUB",
-                "la": 3,
-                "mi_estimator_lr": 2e-3,
-                **trainer_kwargs,
-            },
+            {"mi_estimator": "L1OutUB", "la": 3, **trainer_kwargs},
         ),
         "clear-mim (CLUB-S)": (
             get_clearmimvae_trainer,
-            {
-                "mi_estimator": "CLUBSample",
-                "la": 3,
-                "mi_estimator_lr": 2e-3,
-                **trainer_kwargs,
-            },
+            {"mi_estimator": "CLUBSample", "la": 3, **trainer_kwargs},
         ),
     }
 
@@ -231,14 +198,14 @@ def main():
     args = get_args()
     seed = int(np.random.randint(0, 1000))
     trainer_kwargs = {
-        "beta": 1 / 8,
-        "vae_lr": 5e-4,
-        "z_dim": 16,
+        "beta": 1 / 32,
+        "vae_arch": "VAE64",
+        "z_dim": 64,
         "alpha": args.alpha,
         "temperature": args.temperature,
         "device": args.device,
     }
-    for k in range(1, len(style_fns)):
+    for k in range(1, 4):
         experiment(
             k=k,
             seed=seed,

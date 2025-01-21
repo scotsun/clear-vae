@@ -5,7 +5,7 @@ import torch.nn as nn
 
 
 from src.models.vae import *  # noqa 403
-from src.models.cnn import SimpleCNNClassifier
+from src.models.cnn import *  # noqa 403
 
 from src.trainer import (
     SimpleCNNTrainer,
@@ -17,8 +17,8 @@ from src.trainer import (
 from src.models.mi_estimator import *  # noqa 403
 
 
-def get_cnn_trainer(n_class, device):
-    cnn = SimpleCNNClassifier(n_class=n_class).to(device)
+def get_cnn_trainer(n_class, device, cnn_arch: str = "SimpleCNNClassifier"):
+    cnn = eval(cnn_arch)(n_class=n_class).to(device)
     optimizer = torch.optim.Adam(cnn.parameters(), lr=1e-4)
     criterion = torch.nn.CrossEntropyLoss()
     trainer = SimpleCNNTrainer(

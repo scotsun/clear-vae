@@ -2,7 +2,7 @@ import argparse
 import numpy as np
 import pandas as pd
 import torch
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, random_split
 import torchvision
 from torchvision import transforms
 
@@ -12,7 +12,7 @@ from src.utils.trainer_utils import (
     get_clearmimvae_trainer,
     get_hierachical_vae_trainer,
 )
-from src.utils.data_utils import get_process_celeba_dataloaders
+from src.utils.data_utils import get_process_celeba
 from src.trainer import HierachicalVAETrainer
 
 
@@ -54,7 +54,8 @@ def get_data(path, seed):
     celeba = torchvision.datasets.CelebA(
         path, split="train", target_type="attr", transform=transform, download=True
     )
-    return get_process_celeba_dataloaders(celeba, [0.8, 0.1, 0.1])
+    celeba_selected = get_process_celeba(celeba)
+    return random_split(celeba_selected, [0.8, 0.1, 0.1])
 
 
 class ExperimentHelper:
