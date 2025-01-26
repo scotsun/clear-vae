@@ -720,3 +720,23 @@ def canny_edges(x):
     x = np.array(x) / 255.0
     x = feature.canny(x).astype(np.float32)
     return x * 255
+
+
+COLOR_DICT = {
+    # digit-color: list[channel-index]
+    "red": [0],
+    "green": [1],
+    "blue": [2],
+    "yellow": [0, 1],
+    "cyan": [1, 2],
+    "magenta": [0, 2],
+    "white": [0, 1, 2],
+}
+
+
+def rgb_change(x, color: str):
+    x = np.array(x) / 255.0
+    channel_idxs = COLOR_DICT[color]
+    rgb_img = np.zeros((28, 28, 3), dtype=np.float32)
+    rgb_img[:, :, channel_idxs] = x[:, :, None]
+    return rgb_img * 255
