@@ -86,8 +86,8 @@ class VAETrainer(Trainer):
 
     def _valid(self, dataloader, verbose, epoch_id):
         if verbose:
-            mig, elbo = self.evaluate(dataloader, verbose, epoch_id)
-            print(f"gMIG: {round(mig, 3)}; elbo: {round(float(elbo), 3)}")
+            mig, mse = self.evaluate(dataloader, verbose, epoch_id)
+            print(f"gMIG: {round(mig, 3)}; mse: {round(float(mse), 3)}")
 
 
 class DownstreamMLPTrainer(Trainer):
@@ -340,7 +340,7 @@ class HierachicalVAETrainer(VAETrainer):
             torch.cat(all_latent_s),
         )
         mig = mutual_info_gap(all_label, all_latent_c, all_latent_s)
-        elbo = -float(total_reconstr_loss + total_kl_c + total_kl_s) / len(dataloader)
+        mse = float(total_reconstr_loss / len(dataloader))
 
         if verbose:
             print(
@@ -351,7 +351,7 @@ class HierachicalVAETrainer(VAETrainer):
                 )
             )
 
-        return mig, elbo
+        return mig, mse
 
 
 class CLEARVAETrainer(VAETrainer):
@@ -496,7 +496,7 @@ class CLEARVAETrainer(VAETrainer):
             torch.cat(all_latent_s),
         )
         mig = mutual_info_gap(all_label, all_latent_c, all_latent_s)
-        elbo = -float(total_reconstr_loss + total_kl_c + total_kl_s) / len(dataloader)
+        mse = float(total_reconstr_loss / len(dataloader))
 
         if verbose:
             print(
@@ -509,7 +509,7 @@ class CLEARVAETrainer(VAETrainer):
                 )
             )
 
-        return mig, elbo
+        return mig, mse
 
 
 def factor_shuffling(z: torch.Tensor, strategy: str = "permute_1"):
@@ -704,7 +704,7 @@ class ClearTCVAETrainer(VAETrainer):
             torch.cat(all_latent_s),
         )
         mig = mutual_info_gap(all_label, all_latent_c, all_latent_s)
-        elbo = -float(total_reconstr_loss + total_kl_c + total_kl_s) / len(dataloader)
+        mse = float(total_reconstr_loss / len(dataloader))
 
         if verbose:
             print(
@@ -717,7 +717,7 @@ class ClearTCVAETrainer(VAETrainer):
                 )
             )
 
-        return mig, elbo
+        return mig, mse
 
 
 class ClearMIMVAETrainer(VAETrainer):
@@ -886,7 +886,7 @@ class ClearMIMVAETrainer(VAETrainer):
             torch.cat(all_latent_s),
         )
         mig = mutual_info_gap(all_label, all_latent_c, all_latent_s)
-        elbo = -float(total_reconstr_loss + total_kl_c + total_kl_s) / len(dataloader)
+        mse = float(total_reconstr_loss / len(dataloader))
 
         if verbose:
             print(
@@ -899,4 +899,4 @@ class ClearMIMVAETrainer(VAETrainer):
                 )
             )
 
-        return mig, elbo
+        return mig, mse

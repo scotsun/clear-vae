@@ -26,7 +26,7 @@ class KStyledMNISTGenerator:
 
     def __getitem__(self, idx):
         img, label = self.dataset[idx]
-        cfn_idx = np.random.choice(len(self.style_dict[label][self.split]))
+        cfn_idx = np.random.choice(self.style_dict[label][self.split])
 
         img = self.style_fns[cfn_idx](img)
         return img, label, cfn_idx

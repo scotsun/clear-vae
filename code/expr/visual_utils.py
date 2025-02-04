@@ -6,8 +6,8 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm
 from sklearn.manifold import TSNE
 
-from src.model import VAE
-from src.utils import interpolate_latent
+from src.models.vae import VAE
+from src.utils.display_utils import interpolate_latent
 
 
 def make_colored_grid(imgs, nrow, color: str):
