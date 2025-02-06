@@ -817,7 +817,12 @@ class ClearMIMVAETrainer(VAETrainer):
                     _, _, z = vae(X, explicit=True)
                     z = z.detach()
                     _mi_learning_loss = mi_estimator.learning_loss(
-                        z[:, : vae.z_dim], z[:, vae.z_dim :]
+                        # c -> s
+                        z[:, : vae.z_dim],
+                        z[:, vae.z_dim :],
+                        # s -> c
+                        # z[:, vae.z_dim :],
+                        # z[:, : vae.z_dim],
                     )
                     mi_estimator_optimizer.zero_grad()
                     _mi_learning_loss.backward()

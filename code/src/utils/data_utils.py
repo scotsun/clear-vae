@@ -128,13 +128,16 @@ def get_process_celeba(celeba) -> list:
 
 
 class CheXpert(Dataset):
-    def __init__(self, data_file: pd.DataFrame) -> None:
+    def __init__(
+        self, data_root: str, data_file: pd.DataFrame, image_size: int = 64
+    ) -> None:
         super().__init__()
+        self.data_root = data_root
         self.data_file = data_file
         self.transform = transforms.Compose(
             [
                 transforms.Lambda(self._pad_to_square),
-                transforms.Resize((224, 224)),
+                transforms.Resize((image_size, image_size)),
                 transforms.ToTensor(),
             ]
         )
@@ -156,7 +159,7 @@ class CheXpert(Dataset):
         return transforms.functional.pad(img, (left, top, right, bottom), fill=0)
 
     def __getitem__(self, idx) -> tuple:
-        path = "../data/chexpert/" + self.data_file.iloc[idx]["Path"].split("/", 1)[1]
+        path = self.data_root + self.data_file.iloc[idx]["Path"].split("/", 1)[1]
         img = Image.open(path)
         img = self.transform(img)
         return img
