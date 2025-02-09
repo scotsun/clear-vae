@@ -129,11 +129,16 @@ def get_process_celeba(celeba) -> list:
 
 class CheXpert(Dataset):
     def __init__(
-        self, data_root: str, data_file: pd.DataFrame, image_size: int = 64
+        self,
+        data_root: str,
+        data_file: pd.DataFrame,
+        disease_name: str,
+        image_size: int = 64,
     ) -> None:
         super().__init__()
         self.data_root = data_root
         self.data_file = data_file
+        self.disease_name = disease_name
         self.transform = transforms.Compose(
             [
                 transforms.Lambda(self._pad_to_square),
@@ -159,11 +164,56 @@ class CheXpert(Dataset):
         return transforms.functional.pad(img, (left, top, right, bottom), fill=0)
 
     def __getitem__(self, idx) -> tuple:
-        path = self.data_root + self.data_file.iloc[idx]["Path"].split("/", 1)[1]
+        data_row = self.data_file.iloc[idx]
+        outcome, style = generate_chexpert_labels(data_row, self.disease_name)
+
+        path = self.data_root + data_row["Path"].split("/", 1)[1]
         img = Image.open(path)
         img = self.transform(img)
-        return img
+        return img, outcome, style
 
     def display(self, idx):
-        img = self.__getitem__(idx)
+        img, outcome, style = self.__getitem__(idx)
+        print(
+            "Outcome:",
+            CHEXPERT_OUTCOME[outcome],
+            "\n",
+            "Style:",
+            CHEXPERT_STYLES2ATTR[style],
+        )
         return transforms.ToPILImage()(img)
+
+
+CHEXPERT_ATTR2STYLES = {
+    # (sex, age): style_label
+    (0, 0): 0,
+    (0, 1): 1,
+    (0, 2): 2,
+    (1, 0): 3,
+    (1, 1): 4,
+    (1, 2): 5,
+}
+
+CHEXPERT_STYLES2ATTR = {
+    # style_label: (sex, age)
+    0: ("female", "below 45"),
+    1: ("female", "45-64"),
+    2: ("female", "65+"),
+    3: ("male", "below 45"),
+    4: ("male", "45-64"),
+    5: ("male", "65+"),
+}
+
+CHEXPERT_OUTCOME = {
+    # outcome: label
+    0: "negative",
+    1: "postive",
+    2: "uncertain",
+    3: "not mentioned",
+}
+
+
+def generate_chexpert_labels(row, disease_name: str):
+    sex, age_group, outcome = row["Sex"], row["Age"], row[disease_name]
+    style = CHEXPERT_ATTR2STYLES[(int(sex), int(age_group))]
+    return outcome, style

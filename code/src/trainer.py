@@ -302,8 +302,8 @@ class HierachicalVAETrainer(VAETrainer):
 
     def _valid(self, dataloader, verbose, epoch_id, with_evidence_acc=False):
         if verbose:
-            mig, elbo = self.evaluate(dataloader, verbose, epoch_id, with_evidence_acc)
-            print(f"gMIG: {round(mig, 3)}; elbo: {round(float(elbo), 3)}")
+            mig, mse = self.evaluate(dataloader, verbose, epoch_id, with_evidence_acc)
+            print(f"gMIG: {round(mig, 3)}; mse: {round(float(mse), 3)}")
 
     def evaluate(self, dataloader, verbose, epoch_id, with_evidence_acc=False):
         vae: VAE = self.model

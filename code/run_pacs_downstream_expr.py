@@ -2,12 +2,11 @@ import argparse
 import numpy as np
 import torch
 import torch.nn as nn
-import torchvision
+from datasets import load_from_disk
 import torchvision.transforms as transforms
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader, random_split, ConcatDataset
 import json
-from expr.expr_utils import kceleba_train_test_split
-
+from pprint import pprint
 from src.utils.trainer_utils import (
     get_cnn_trainer,
     get_clearvae_trainer,
@@ -19,7 +18,6 @@ from src.trainer import (
     DownstreamMLPTrainer,
     VAETrainer,
 )
-from src.utils.data_utils import get_process_celeba
 
 
 def get_args():
@@ -46,30 +44,57 @@ def get_args():
     return parser.parse_args()
 
 
-def get_data(data_root_path):
-    transform = transforms.Compose([transforms.Resize((64, 64)), transforms.ToTensor()])
-    celeba = torchvision.datasets.CelebA(
-        data_root_path,
-        split="train",
-        target_type="attr",
-        transform=transform,
-        download=True,
-    )
-    celeba = get_process_celeba(celeba)
-    return celeba
+DOMAIN_CODE = {
+    "art_painting": 0,
+    "cartoon": 1,
+    "photo": 2,
+    "sketch": 3,
+}
 
 
-def get_data_splits(celeba, k: int, seed: int):
-    """
-    Generate data splits and style dictionaries for k styled CelebA dataset
-    """
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    train, test, style_dict = kceleba_train_test_split(
-        celeba_data=celeba, k=k, seed=seed
+def _subsetting(pacs_dataset, content, style):
+    subset = pacs_dataset.filter(
+        lambda x: x["label"] == content and x["domain"] == style
     )
+    return subset
+
+
+def generate_style_dict(classes: list, styles: list, k: int):
+    style_dict = {}
+    for c in classes:
+        train_styles = np.random.choice(styles, k, replace=False)
+        test_styles = np.setdiff1d(styles, train_styles)
+        style_dict[c] = {"train": train_styles.tolist(), "test": test_styles.tolist()}
+    return style_dict
+
+
+def get_data(data_root_path, classes: list, styles: list, k: int):
+    pacs_dataset = load_from_disk(data_root_path)["train"]
+    train_sets, test_sets = [], []
+    style_dict = generate_style_dict(classes, styles, k)
+    pprint(style_dict)
+    for c in classes:
+        for s in style_dict[c]["train"]:
+            train_sets.append(_subsetting(pacs_dataset, c, s))
+        for s in style_dict[c]["test"]:
+            test_sets.append(_subsetting(pacs_dataset, c, s))
+    train = ConcatDataset(train_sets)
+    test = ConcatDataset(test_sets)
     train, valid = random_split(train, [0.85, 0.15])
-    return style_dict, train, valid, test
+    return generate_style_dict, train, valid, test
+
+
+def collate_fn(batch):
+    transform = transforms.Compose(
+        [
+            transforms.Resize((64, 64)),
+            transforms.ToTensor(),
+        ]
+    )
+    images = [transform(x["image"]) for x in batch]
+    labels = [x["label"] for x in batch]
+    domains = [DOMAIN_CODE[x["domain"]] for x in batch]
+    return torch.stack(images), torch.tensor(labels), torch.tensor(domains)
 
 
 def experiment_helper(
@@ -110,12 +135,14 @@ def experiment_helper(
     return aupr_scores, auroc_scores, acc
 
 
-def experiment(celeba, k, seed, trainer_kwargs, epochs):
+def experiment(pacs_path, k, seed, trainer_kwargs, epochs):
     print(f"Experiment: k={k}, seed={seed}")
-    _, train, valid, test = get_data_splits(celeba, k=k, seed=seed)
-    train_loader = DataLoader(train, batch_size=128, shuffle=True)
-    valid_loader = DataLoader(valid, batch_size=128, shuffle=False)
-    test_loader = DataLoader(test, batch_size=128, shuffle=False)
+    _, train, valid, test = get_data(
+        pacs_path, list(range(7)), ["art_painting", "cartoon", "photo", "sketch"], k
+    )
+    train_loader = DataLoader(train, batch_size=128, shuffle=True, num_workers=4)
+    valid_loader = DataLoader(valid, batch_size=128, shuffle=False, num_workers=4)
+    test_loader = DataLoader(test, batch_size=128, shuffle=False, num_workers=4)
 
     models = {
         "baseline": (
@@ -207,7 +234,7 @@ def experiment(celeba, k, seed, trainer_kwargs, epochs):
     print("\nResults:")
     print(json.dumps(results, indent=2))
 
-    fpath = f"./expr_output/celeba/classification/celeba-k{k}-{seed}.json"
+    fpath = fpath = f"./expr_output/pacs/classification/pacs-k{k}-{seed}.json"
     with open(fpath, "w") as json_file:
         json.dump(results, json_file, indent=4)
 
@@ -216,7 +243,6 @@ def experiment(celeba, k, seed, trainer_kwargs, epochs):
 
 def main():
     args = get_args()
-    celeba = get_data(args.data_root_path)
     seed = int(np.random.randint(0, 1000))
     trainer_kwargs = {
         "beta": 1 / 32,
@@ -229,7 +255,7 @@ def main():
     }
     for k in range(1, 4):
         experiment(
-            celeba,
+            pacs_path=args.data_root_path + "pacs",
             k=k,
             seed=seed,
             trainer_kwargs=trainer_kwargs,
