@@ -10,10 +10,10 @@ from src.utils.trainer_utils import (
     get_clearvae_trainer,
     get_cleartcvae_trainer,
     get_clearmimvae_trainer,
-    get_hierachical_vae_trainer,
+    get_hierarchical_vae_trainer,
 )
 from src.utils.data_utils import get_process_celeba
-from src.trainer import HierachicalVAETrainer
+from src.trainer import HierarchicalVAETrainer
 
 
 # BETAS = [1 / 32, 1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8]
@@ -73,7 +73,7 @@ class ExperimentHelper:
     ):
         print(f"----------{type(trainer)}------------")
 
-        if isinstance(trainer, HierachicalVAETrainer):
+        if isinstance(trainer, HierarchicalVAETrainer):
             trainer.fit(epochs, train_loader, valid_loader, eval_evidence_acc=False)
             mig, elbo = trainer.evaluate(test_loader, False, 0, with_evidence_acc=False)
         else:
@@ -132,7 +132,7 @@ def main():
             la=3,
             **{**default_hyperparam_kwargs, "mi_estimator_lr": 2e-3},
         ),
-        "mlvae": lambda beta: get_hierachical_vae_trainer(
+        "mlvae": lambda beta: get_hierarchical_vae_trainer(
             beta=beta,
             vae_lr=3e-5,
             z_dim=args.z_dim,
@@ -140,7 +140,7 @@ def main():
             device=args.device,
             vae_arch="VAE64",
         ),
-        "gvae": lambda beta: get_hierachical_vae_trainer(
+        "gvae": lambda beta: get_hierarchical_vae_trainer(
             beta=beta,
             vae_lr=3e-5,
             z_dim=args.z_dim,

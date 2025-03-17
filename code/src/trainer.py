@@ -1,4 +1,5 @@
 """Trainer class"""
+
 import math
 import numpy as np
 import torch
@@ -230,7 +231,7 @@ class SimpleCNNTrainer(Trainer):
         return auc(all_logits, all_y), accurary(all_logits, all_y)
 
 
-class HierachicalVAETrainer(VAETrainer):
+class HierarchicalVAETrainer(VAETrainer):
     def __init__(
         self,
         model: VAE,

@@ -11,9 +11,9 @@ from src.utils.trainer_utils import (
     get_clearvae_trainer,
     get_cleartcvae_trainer,
     get_clearmimvae_trainer,
-    get_hierachical_vae_trainer,
+    get_hierarchical_vae_trainer,
 )
-from src.trainer import HierachicalVAETrainer
+from src.trainer import HierarchicalVAETrainer
 from src.utils.data_utils import StyledMNISTGenerator, StyledMNIST
 
 
@@ -82,7 +82,7 @@ class ExperimentHelper:
     ):
         print(f"----------{type(trainer)}------------")
 
-        if isinstance(trainer, HierachicalVAETrainer):
+        if isinstance(trainer, HierarchicalVAETrainer):
             trainer.fit(epochs, train_loader, valid_loader, eval_evidence_acc=True)
             mig, elbo = trainer.evaluate(test_loader, False, 0, with_evidence_acc=False)
         else:
@@ -141,7 +141,7 @@ def main():
             la=3,
             **{**default_hyperparam_kwargs, "mi_estimator_lr": 2e-3},
         ),
-        "mlvae": lambda beta: get_hierachical_vae_trainer(
+        "mlvae": lambda beta: get_hierarchical_vae_trainer(
             beta=beta,
             vae_lr=5e-4,
             z_dim=args.z_dim,
@@ -149,7 +149,7 @@ def main():
             device=args.device,
             vae_arch="VAE",
         ),
-        "gvae": lambda beta: get_hierachical_vae_trainer(
+        "gvae": lambda beta: get_hierarchical_vae_trainer(
             beta=beta,
             vae_lr=5e-4,
             z_dim=args.z_dim,

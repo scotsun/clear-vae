@@ -9,7 +9,7 @@ from src.models.cnn import *  # noqa 403
 
 from src.trainer import (
     SimpleCNNTrainer,
-    HierachicalVAETrainer,
+    HierarchicalVAETrainer,
     CLEARVAETrainer,
     ClearTCVAETrainer,
     ClearMIMVAETrainer,
@@ -17,8 +17,10 @@ from src.trainer import (
 from src.models.mi_estimator import *  # noqa 403
 
 
-def get_cnn_trainer(n_class, device, cnn_arch: str = "SimpleCNNClassifier"):
-    cnn = eval(cnn_arch)(n_class=n_class).to(device)
+def get_cnn_trainer(
+    n_class, device, cnn_arch: str = "SimpleCNNClassifier", in_channel: str = 1
+):
+    cnn = eval(cnn_arch)(n_class=n_class, in_channel=in_channel).to(device)
     optimizer = torch.optim.Adam(cnn.parameters(), lr=1e-4)
     criterion = torch.nn.CrossEntropyLoss()
     trainer = SimpleCNNTrainer(
@@ -27,12 +29,14 @@ def get_cnn_trainer(n_class, device, cnn_arch: str = "SimpleCNNClassifier"):
     return trainer
 
 
-def get_hierachical_vae_trainer(
-    beta, vae_lr, z_dim, group_mode, device, vae_arch: str = "VAE"
+def get_hierarchical_vae_trainer(
+    beta, vae_lr, z_dim, group_mode, device, vae_arch: str = "VAE", in_channel: str = 1
 ):
-    vae = eval(vae_arch)(total_z_dim=z_dim, group_mode=group_mode).to(device)
+    vae = eval(vae_arch)(
+        total_z_dim=z_dim, in_channel=in_channel, group_mode=group_mode
+    ).to(device)
     optimizer = torch.optim.Adam(vae.parameters(), lr=vae_lr)
-    trainer = HierachicalVAETrainer(
+    trainer = HierarchicalVAETrainer(
         vae,
         optimizer,
         hyperparameter={
@@ -55,8 +59,9 @@ def get_clearvae_trainer(
     temperature,
     device,
     vae_arch: str = "VAE",
+    in_channel: str = 1,
 ):
-    vae = eval(vae_arch)(total_z_dim=z_dim).to(device)
+    vae = eval(vae_arch)(total_z_dim=z_dim, in_channel=in_channel).to(device)
     optimizer = torch.optim.Adam(vae.parameters(), lr=vae_lr)
     trainer = CLEARVAETrainer(
         vae,
@@ -86,8 +91,9 @@ def get_cleartcvae_trainer(
     temperature,
     device,
     vae_arch: str = "VAE",
+    in_channel: str = 1,
 ):
-    vae = eval(vae_arch)(total_z_dim=z_dim).to(device)
+    vae = eval(vae_arch)(total_z_dim=z_dim, in_channel=in_channel).to(device)
     factor_cls = nn.Sequential(
         nn.Linear(z_dim, z_dim),
         nn.ReLU(),
@@ -126,8 +132,9 @@ def get_clearmimvae_trainer(
     temperature,
     device,
     vae_arch: str = "VAE",
+    in_channel: str = 1,
 ):
-    vae = eval(vae_arch)(total_z_dim=z_dim).to(device)
+    vae = eval(vae_arch)(total_z_dim=z_dim, in_channel=in_channel).to(device)
     mi_estimator = eval(mi_estimator)(
         x_dim=z_dim // 2, y_dim=z_dim // 2, hidden_size=z_dim
     ).to(device)

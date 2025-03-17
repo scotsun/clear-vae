@@ -12,7 +12,7 @@ from src.utils.trainer_utils import (
     get_clearvae_trainer,
     get_cleartcvae_trainer,
     get_clearmimvae_trainer,
-    get_hierachical_vae_trainer,
+    get_hierarchical_vae_trainer,
 )
 from src.trainer import (
     DownstreamMLPTrainer,
@@ -154,7 +154,7 @@ def experiment(pacs_path, k, seed, trainer_kwargs, epochs):
             },
         ),
         "gvae": (
-            get_hierachical_vae_trainer,
+            get_hierarchical_vae_trainer,
             {
                 "beta": trainer_kwargs["beta"],
                 "vae_lr": trainer_kwargs["vae_lr"],
@@ -165,7 +165,7 @@ def experiment(pacs_path, k, seed, trainer_kwargs, epochs):
             },
         ),
         "mlvae": (
-            get_hierachical_vae_trainer,
+            get_hierarchical_vae_trainer,
             {
                 "beta": trainer_kwargs["beta"],
                 "vae_lr": trainer_kwargs["vae_lr"],

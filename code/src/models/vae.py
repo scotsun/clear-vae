@@ -66,7 +66,7 @@ class VAE(nn.Module):
         self, mu_c, logvar_c, mu_s, logvar_s, g_dict: dict | None = None, explicit=False
     ):
         """
-        g_dict: if provided the VAE -> ML-VAE
+        g_dict: if provided ML-VAE or GVAE will have evi. acc.
         explicit: bool indicating if return generated latent z
         """
         if g_dict is None:
