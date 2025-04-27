@@ -19,7 +19,7 @@ class SimpleCNNClassifier(nn.Module):
             nn.ReLU(),
             nn.Flatten(),
         )
-        self.clf_head = nn.Sequential(
+        self.cls_head = nn.Sequential(
             nn.Linear(2048, 256),
             torch.nn.BatchNorm1d(256),
             torch.nn.ReLU(),
@@ -28,7 +28,7 @@ class SimpleCNNClassifier(nn.Module):
 
     def forward(self, x):
         h = self.net(x)
-        return self.clf_head(h)
+        return self.cls_head(h)
 
 
 class SimpleCNN64Classifier(SimpleCNNClassifier):
@@ -52,3 +52,15 @@ class SimpleCNN64Classifier(SimpleCNNClassifier):
             nn.ReLU(),
             nn.Flatten(),
         )
+
+
+class LAMCNNClassifier(SimpleCNNClassifier):
+    def __init__(self, n_class: int = 10, in_channel: int = 1) -> None:
+        super().__init__(n_class, in_channel)
+        self.cls_head = nn.Linear(2048, n_class)
+
+
+class LAMCNN64Classifier(SimpleCNN64Classifier):
+    def __init__(self, n_class: int = 4, in_channel: int = 3) -> None:
+        super().__init__(n_class, in_channel)
+        self.cls_head = nn.Linear(2048, n_class)

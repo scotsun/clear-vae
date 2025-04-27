@@ -9,6 +9,7 @@ import json
 from pprint import pprint
 from src.utils.trainer_utils import (
     get_cnn_trainer,
+    get_lamcnn_trainer,
     get_clearvae_trainer,
     get_cleartcvae_trainer,
     get_clearmimvae_trainer,
@@ -16,6 +17,7 @@ from src.utils.trainer_utils import (
 )
 from src.trainer import (
     DownstreamMLPTrainer,
+    SimpleCNNTrainer,
     VAETrainer,
 )
 
@@ -151,6 +153,17 @@ def experiment(pacs_path, k, seed, trainer_kwargs, epochs):
                 "n_class": 10,
                 "device": trainer_kwargs["device"],
                 "cnn_arch": "SimpleCNN64Classifier",
+                "in_channel": 3,
+            },
+        ),
+        "lam": (
+            get_lamcnn_trainer,
+            {
+                "lam_coef": 0.1,
+                "n_class": 10,
+                "device": trainer_kwargs["device"],
+                "cnn_arch": "LAMCNN64Classifier",
+                "in_channel": 3,
             },
         ),
         "gvae": (
@@ -162,6 +175,7 @@ def experiment(pacs_path, k, seed, trainer_kwargs, epochs):
                 "group_mode": "GVAE",
                 "device": trainer_kwargs["device"],
                 "vae_arch": trainer_kwargs["vae_arch"],
+                "in_channel": 3,
             },
         ),
         "mlvae": (
@@ -173,6 +187,7 @@ def experiment(pacs_path, k, seed, trainer_kwargs, epochs):
                 "group_mode": "MLVAE",
                 "device": trainer_kwargs["device"],
                 "vae_arch": trainer_kwargs["vae_arch"],
+                "in_channel": 3,
             },
         ),
         "clear": (
@@ -209,7 +224,7 @@ def experiment(pacs_path, k, seed, trainer_kwargs, epochs):
         print(f"\nTraining {model_name}:")
         trainer = trainer_func(**params)
 
-        if model_name == "baseline":
+        if isinstance(trainer, SimpleCNNTrainer):
             trainer.fit(
                 epochs=epochs, train_loader=train_loader, valid_loader=valid_loader
             )
@@ -252,6 +267,7 @@ def main():
         "alpha": args.alpha,
         "temperature": args.temperature,
         "device": args.device,
+        "in_channel": 3,
     }
     for k in range(1, 4):
         experiment(

@@ -158,3 +158,20 @@ def snn_loss(
     losses = _snn_loss(sim, pair_mat, temperature)
     finite_mask = torch.isfinite(losses)
     return losses[finite_mask].mean()
+
+
+def lam_loss(
+    feature_x: torch.Tensor,
+    feature_x_tilde: torch.Tensor,
+    y: torch.Tensor,
+    linear_w: torch.nn.Parameter,
+):
+    """Labelled LAM."""
+    w_y = linear_w[y]
+
+    # Compute contributions: features * weights for y
+    contributions_x = feature_x * w_y
+    contributions_x_tilde = feature_x_tilde * w_y
+
+    # Mean squared difference
+    return ((contributions_x - contributions_x_tilde) ** 2).sum(dim=1).mean()

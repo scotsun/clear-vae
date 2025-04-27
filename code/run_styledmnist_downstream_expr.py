@@ -11,15 +11,13 @@ from corruption_utils import corruptions
 
 from src.utils.trainer_utils import (
     get_cnn_trainer,
+    get_lamcnn_trainer,
     get_clearvae_trainer,
     get_cleartcvae_trainer,
     get_clearmimvae_trainer,
     get_hierarchical_vae_trainer,
 )
-from src.trainer import (
-    DownstreamMLPTrainer,
-    VAETrainer,
-)
+from src.trainer import DownstreamMLPTrainer, VAETrainer, SimpleCNNTrainer
 
 
 style_fns = [
@@ -141,52 +139,68 @@ def experiment(k, seed, trainer_kwargs, epochs):
             get_cnn_trainer,
             {"n_class": 10, "device": trainer_kwargs["device"]},
         ),
-        "gvae": (
-            get_hierarchical_vae_trainer,
-            {
-                "beta": trainer_kwargs["beta"],
-                "vae_lr": 5e-4,
-                "z_dim": trainer_kwargs["z_dim"],
-                "group_mode": "GVAE",
-                "device": trainer_kwargs["device"],
-            },
+        "lam0": (
+            get_lamcnn_trainer,
+            {"lam_coef": 0.0001, "n_class": 10, "device": trainer_kwargs["device"]},
         ),
-        "mlvae": (
-            get_hierarchical_vae_trainer,
-            {
-                "beta": trainer_kwargs["beta"],
-                "vae_lr": 5e-4,
-                "z_dim": trainer_kwargs["z_dim"],
-                "group_mode": "MLVAE",
-                "device": trainer_kwargs["device"],
-            },
+        "lam1": (
+            get_lamcnn_trainer,
+            {"lam_coef": 0.001, "n_class": 10, "device": trainer_kwargs["device"]},
         ),
+        "lam2": (
+            get_lamcnn_trainer,
+            {"lam_coef": 0.01, "n_class": 10, "device": trainer_kwargs["device"]},
+        ),
+        "lam3": (
+            get_lamcnn_trainer,
+            {"lam_coef": 0.1, "n_class": 10, "device": trainer_kwargs["device"]},
+        ),
+        # "gvae": (
+        #     get_hierarchical_vae_trainer,
+        #     {
+        #         "beta": trainer_kwargs["beta"],
+        #         "vae_lr": 5e-4,
+        #         "z_dim": trainer_kwargs["z_dim"],
+        #         "group_mode": "GVAE",
+        #         "device": trainer_kwargs["device"],
+        #     },
+        # ),
+        # "mlvae": (
+        #     get_hierarchical_vae_trainer,
+        #     {
+        #         "beta": trainer_kwargs["beta"],
+        #         "vae_lr": 5e-4,
+        #         "z_dim": trainer_kwargs["z_dim"],
+        #         "group_mode": "MLVAE",
+        #         "device": trainer_kwargs["device"],
+        #     },
+        # ),
         "clear": (
             get_clearvae_trainer,
             {"label_flipping": True, **trainer_kwargs},
         ),
-        "clear-tc": (
-            get_cleartcvae_trainer,
-            {"la": 1, "factor_cls_lr": 1e-4, **trainer_kwargs},
-        ),
-        "clear-mim (L1OutUB)": (
-            get_clearmimvae_trainer,
-            {
-                "mi_estimator": "L1OutUB",
-                "la": 3,
-                "mi_estimator_lr": 2e-3,
-                **trainer_kwargs,
-            },
-        ),
-        "clear-mim (CLUB-S)": (
-            get_clearmimvae_trainer,
-            {
-                "mi_estimator": "CLUBSample",
-                "la": 3,
-                "mi_estimator_lr": 2e-3,
-                **trainer_kwargs,
-            },
-        ),
+        # "clear-tc": (
+        #     get_cleartcvae_trainer,
+        #     {"la": 1, "factor_cls_lr": 1e-4, **trainer_kwargs},
+        # ),
+        # "clear-mim (L1OutUB)": (
+        #     get_clearmimvae_trainer,
+        #     {
+        #         "mi_estimator": "L1OutUB",
+        #         "la": 3,
+        #         "mi_estimator_lr": 2e-3,
+        #         **trainer_kwargs,
+        #     },
+        # ),
+        # "clear-mim (CLUB-S)": (
+        #     get_clearmimvae_trainer,
+        #     {
+        #         "mi_estimator": "CLUBSample",
+        #         "la": 3,
+        #         "mi_estimator_lr": 2e-3,
+        #         **trainer_kwargs,
+        #     },
+        # ),
     }
 
     results = {}
@@ -195,7 +209,7 @@ def experiment(k, seed, trainer_kwargs, epochs):
         print(f"\nTraining {model_name}:")
         trainer = trainer_func(**params)
 
-        if model_name == "baseline":
+        if isinstance(trainer, SimpleCNNTrainer):
             trainer.fit(
                 epochs=epochs, train_loader=train_loader, valid_loader=valid_loader
             )

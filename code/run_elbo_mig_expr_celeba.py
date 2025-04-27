@@ -104,6 +104,7 @@ def main():
         "temperature": args.temperature,
         "device": args.device,
         "vae_arch": "VAE64",
+        "in_channel": 3,
     }
     trainer_kwargs = {**loaders, "epochs": args.epochs}
 
