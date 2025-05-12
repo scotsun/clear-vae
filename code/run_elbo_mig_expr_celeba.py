@@ -110,13 +110,13 @@ def main():
 
     models = {
         "clear-ps": lambda beta: get_clearvae_trainer(
-            beta=beta, label_flipping=True, **default_hyperparam_kwargs
+            beta=beta, ps=True, **default_hyperparam_kwargs
         ),
         "clear-neg": lambda beta: get_clearvae_trainer(
-            beta=beta, label_flipping=False, **default_hyperparam_kwargs
+            beta=beta, ps=False, **default_hyperparam_kwargs
         ),
         "bvae": lambda beta: get_clearvae_trainer(
-            beta=beta, label_flipping=None, **{**default_hyperparam_kwargs, "alpha": 0}
+            beta=beta, ps=None, **{**default_hyperparam_kwargs, "alpha": 0}
         ),
         "clear-tc": lambda beta: get_cleartcvae_trainer(
             beta=beta, la=1, **{**default_hyperparam_kwargs, "factor_cls_lr": 1e-4}

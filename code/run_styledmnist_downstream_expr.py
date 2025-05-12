@@ -177,7 +177,7 @@ def experiment(k, seed, trainer_kwargs, epochs):
         # ),
         "clear": (
             get_clearvae_trainer,
-            {"label_flipping": True, **trainer_kwargs},
+            {"ps": True, **trainer_kwargs},
         ),
         # "clear-tc": (
         #     get_cleartcvae_trainer,

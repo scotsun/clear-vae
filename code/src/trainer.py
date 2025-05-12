@@ -440,7 +440,7 @@ class CLEARVAETrainer(VAETrainer):
         device = self.device
         temperature = self.hyperparameter["temperature"]
         alpha = self.hyperparameter["alpha"]
-        label_flipping = self.hyperparameter["label_flipping"]
+        ps = self.hyperparameter["ps"]
         with tqdm(dataloader, unit="batch", mininterval=0, disable=not verbose) as bar:
             bar.set_description(f"Epoch {epoch_id}")
             for batch in bar:
@@ -466,9 +466,9 @@ class CLEARVAETrainer(VAETrainer):
                     label=label,
                     sim_fn=self.sim_fn,
                     temperature=temperature,
-                    flip=label_flipping,
+                    flip=ps,
                 )
-                if not label_flipping:
+                if not ps:
                     _reverse_ntxent_loss = -_reverse_ntxent_loss
 
                 loss = (
@@ -497,7 +497,7 @@ class CLEARVAETrainer(VAETrainer):
         vae.eval()
         device = self.device
         temperature = self.hyperparameter["temperature"]
-        label_flipping = self.hyperparameter["label_flipping"]
+        ps = self.hyperparameter["ps"]
         total_reconstr_loss, total_kl_c, total_kl_s, total_c_loss, total_s_loss = (
             0.0,
             0.0,
@@ -534,9 +534,9 @@ class CLEARVAETrainer(VAETrainer):
                     label=label,
                     sim_fn=self.sim_fn,
                     temperature=temperature,
-                    flip=label_flipping,
+                    flip=ps,
                 )
-                if not label_flipping:
+                if not ps:
                     _reverse_ntxent_loss = -_reverse_ntxent_loss
 
                 total_reconstr_loss += _recontr_loss

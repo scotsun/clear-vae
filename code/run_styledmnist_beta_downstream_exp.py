@@ -160,7 +160,7 @@ def experiment(beta, dataloaders, trainer_kwargs, epochs):
         # ),
         "clear": (
             get_clearvae_trainer,
-            {"label_flipping": True, "beta": beta, **trainer_kwargs},
+            {"ps": True, "beta": beta, **trainer_kwargs},
         ),
         # "clear-tc": (
         #     get_cleartcvae_trainer,
