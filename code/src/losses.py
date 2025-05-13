@@ -120,7 +120,7 @@ def logsumexp(x: Tensor, dim: int) -> Tensor:
 
 def _snn_loss(sim: torch.Tensor, pair_mat: torch.Tensor, temperature: float):
     n = sim.shape[0]
-    sim = sim.clone()
+    # sim = sim.clone()
     sim[torch.eye(n).bool()] = float("-Inf")
 
     neg_mask = pair_mat == 0
@@ -158,6 +158,43 @@ def snn_loss(
     losses = _snn_loss(sim, pair_mat, temperature)
     finite_mask = torch.isfinite(losses)
     return losses[finite_mask].mean()
+
+
+def supcon_in_loss(mu: torch.Tensor, label: torch.Tensor, temperature: float):
+    sim = pairwise_cosine(mu)
+    pair_mat = (label[None, :] == label[:, None]).float()
+
+    n_k = label.bincount()[label]
+
+    n = sim.shape[0]
+    # sim = sim.clone()
+    sim[torch.eye(n).bool()] = float("-Inf")
+
+    neg_mask = pair_mat == 0
+    pos = pair_mat * sim
+    pos[neg_mask] = float("-Inf")
+    loss = (
+        n_k.log()
+        - logsumexp(pos / temperature, dim=1)
+        + logsumexp(sim / temperature, dim=1)
+    )
+    return loss
+
+
+def supcon_out_loss(mu: torch.Tensor, label: torch.Tensor, temperature: float):
+    sim = pairwise_cosine(mu)
+    pair_mat = (label[None, :] == label[:, None]).float()
+    n = sim.shape[0]
+
+    sim[torch.eye(n).bool()] = float("-Inf")
+
+    pos_mask = pair_mat & ~torch.eye(n).bool().to(mu.device)
+    masked_sim = sim * pos_mask
+
+    loss = -masked_sim.sum(dim=1) / pos_mask.sum(dim=1) + logsumexp(
+        sim / temperature, dim=1
+    )
+    return loss
 
 
 def lam_loss(

@@ -12,6 +12,6 @@ pip install wand
 ```
 
 ## Python & ML packages versions
-python == 3.10.4 or later  
-torch == 2.2.1+cu121 or later  
-sklearn == 1.4.2 or later  
+python >= 3.10.4  
+torch >= 2.2.1+cu121  
+sklearn >= 1.4.2
