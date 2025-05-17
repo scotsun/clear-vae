@@ -3,9 +3,6 @@
 import torch
 import torch.nn as nn
 
-from . import resnet_decoder as dec
-from . import resnet_encoder as enc
-
 
 class VAE(nn.Module):
     def __init__(
@@ -157,87 +154,6 @@ class VAE64(VAE):
             nn.BatchNorm2d(in_channel),
             nn.Sigmoid(),
         )
-
-
-class ResNetVAE(VAE):
-    def __init__(self, total_z_dim, in_channel: int = 1, group_mode: str | None = None):
-        super().__init__(total_z_dim, in_channel, group_mode)
-
-        self.mode = group_mode
-        self.z_dim = int(total_z_dim / 2)
-        # encoder
-        self.encoder = enc.ResNet(
-            enc.Bottleneck, [3, 4, 6, 3], in_channel=in_channel, return_indices=True
-        )
-        self.mu_c = nn.Linear(2048, self.z_dim)
-        self.logvar_c = nn.Linear(2048, self.z_dim)
-        self.mu_s = nn.Linear(2048, self.z_dim)
-        self.logvar_s = nn.Linear(2048, self.z_dim)
-        self.z_to_dec = nn.Linear(self.z_dim * 2, 2048)
-        # decoder
-        self.decoder = dec.ResNet(dec.Bottleneck, [3, 6, 4, 3], out_channel=in_channel)
-
-    def encode(self, x):
-        h, indices = self.encoder(x)
-        h = h.squeeze()
-        return self.mu_c(h), self.logvar_c(h), self.mu_s(h), self.logvar_s(h), indices
-
-    def decode(self, z, indices):
-        z = self.z_to_dec(z)
-        z = z[:, :, None, None]
-        x = self.decoder(z, indices)
-        return x
-
-    def generate(
-        self,
-        mu_c,
-        logvar_c,
-        mu_s,
-        logvar_s,
-        indices,
-        g_dict: dict | None = None,
-        explicit=False,
-    ):
-        """
-        g_dict: if provided the VAE -> ML-VAE
-        explicit: bool indicating if return generated latent z
-        """
-        if g_dict is None:
-            z_c = self.sample(mu_c, logvar_c)
-        else:
-            z_c, _, _ = groupwise_reparam_each(mu_c, logvar_c, g_dict)
-        z_s = self.sample(mu_s, logvar_s)
-        z = torch.cat([z_c, z_s], dim=-1)
-        xhat = self.decode(z, indices)
-        if explicit:
-            return xhat, z
-        else:
-            return xhat
-
-    def forward(self, x, label=None, explicit=False) -> tuple:
-        mu_c, logvar_c, mu_s, logvar_s, indices = self.encode(x)
-
-        if label is not None:  # if label is provided, then we have a grouping dict
-            mu_c, logvar_c, g_dict = accumulate_group_evidence(
-                mu_c, logvar_c, label, mode=self.mode
-            )
-        else:  # else we do not have a grouping dict
-            g_dict = None
-
-        latent_params = {
-            "mu_c": mu_c,
-            "logvar_c": logvar_c,
-            "mu_s": mu_s,
-            "logvar_s": logvar_s,
-        }
-        if explicit:
-            xhat, z = self.generate(
-                mu_c, logvar_c, mu_s, logvar_s, indices, g_dict, True
-            )
-            return xhat, latent_params, z  # z = (z_c, z_s)
-        else:
-            xhat = self.generate(mu_c, logvar_c, mu_s, logvar_s, indices, g_dict, False)
-            return xhat, latent_params
 
 
 def accumulate_group_evidence(
