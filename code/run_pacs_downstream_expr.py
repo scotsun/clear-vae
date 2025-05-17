@@ -9,7 +9,6 @@ import json
 from pprint import pprint
 from src.utils.trainer_utils import (
     get_cnn_trainer,
-    get_lamcnn_trainer,
     get_clearvae_trainer,
     get_cleartcvae_trainer,
     get_clearmimvae_trainer,
@@ -153,16 +152,6 @@ def experiment(pacs_path, k, seed, trainer_kwargs, epochs):
                 "n_class": 10,
                 "device": trainer_kwargs["device"],
                 "cnn_arch": "SimpleCNN64Classifier",
-                "in_channel": 3,
-            },
-        ),
-        "lam": (
-            get_lamcnn_trainer,
-            {
-                "lam_coef": 0.1,
-                "n_class": 10,
-                "device": trainer_kwargs["device"],
-                "cnn_arch": "LAMCNN64Classifier",
                 "in_channel": 3,
             },
         ),
