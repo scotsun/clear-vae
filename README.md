@@ -2,19 +2,21 @@
  
 This repository contains the code for the paper: CLEAR
 
-## C-MNIST module `corrpution_utils`
 
-Check https://docs.wand-py.org/en/0.6.7/guide/install.html for installation of `ImageMagick`.
-For Ubuntu operating system i.e. `Google Colab`, try this:
-```
-sudo apt-get install libmagickwand-dev
-pip install wand
-```
-
-## Python & ML packages versions
+## Requirements
 - python >= 3.10.4  
 - torch >= 2.2.1+cu121  
 - sklearn >= 1.4.2
+- wandb == 0.6.13
+
+### [MNIST-C](https://github.com/google-research/mnist-c) module `corrpution_utils`
+
+Check https://docs.wand-py.org/en/0.6.7/guide/install.html for installation of `ImageMagick`.
+For Ubuntu operating system (e.g. `Google Colab`), try this:
+```
+apt-get install libmagickwand-dev
+pip install wand
+```
 
 ## Dataset
 
