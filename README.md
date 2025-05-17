@@ -12,6 +12,13 @@ pip install wand
 ```
 
 ## Python & ML packages versions
-python >= 3.10.4  
-torch >= 2.2.1+cu121  
-sklearn >= 1.4.2
+- python >= 3.10.4  
+- torch >= 2.2.1+cu121  
+- sklearn >= 1.4.2
+
+## Dataset
+
+- Styled- and Colored-MNIST are augmented version of MNIST downloaded through `torchvision` use the code module `corrpution_utils/corruption`.
+- CelebA is downloaded through `torchvision`.
+- PACS is downloaded through HuggingFace's package `datasets` with name `flwrlabs/pacs`.
+- Camelyon17 is downloaded through WILDS benchmark package `wilds`
