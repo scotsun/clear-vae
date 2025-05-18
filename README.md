@@ -35,8 +35,9 @@ The demo files provides the example of quick implementations of different method
 
 - `mi_experiment.ipynb` provides the simulation study on the effectiveness of MI max/minimization.
 - `swapping_interpolation.ipynb` provides examplar code for performing swapping and interpolation.
-- `run*.ipynb` execute the `run*.py` (in `Google Colab` computing environment) for the train-test style shift OOD classification experiments.
+- `run*downstream_expr.ipynb` execute the `run*.py` (in `Google Colab` computing environment) for the train-test style shift OOD classification experiments.
     - `run_camelyon17_downstream_expr.ipynb` is following the original experimental protocal, so we don't have a special `.py` file to prepare the data for it.
+- `run_elbo_mig_expr*` are for exploring the effect of temperature and beta for KL regularization on disentanglement.
 
 ## Code Details
 
