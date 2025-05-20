@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from src.losses import (
     vae_loss,
-    snn_loss,
+    contrastive_loss,
     lam_loss,
     auc,
     accurary,
@@ -453,30 +453,30 @@ class CLEARVAETrainer(VAETrainer):
 
                 _reconstr_loss, _kl_c, _kl_s = vae_loss(X_hat, X, **latent_params)
 
-                _ntxent_loss = snn_loss(
+                _c_loss = contrastive_loss(
                     mu=latent_params["mu_c"],
                     logvar=latent_params["logvar_c"],
                     label=label,
                     sim_fn=self.sim_fn,
                     temperature=temperature,
                 )
-                _reverse_ntxent_loss = snn_loss(
+                _s_loss = contrastive_loss(
                     mu=latent_params["mu_s"],
                     logvar=latent_params["logvar_s"],
                     label=label,
                     sim_fn=self.sim_fn,
                     temperature=temperature,
-                    flip=ps,
+                    ps=ps,
                 )
                 if not ps:
-                    _reverse_ntxent_loss = -_reverse_ntxent_loss
+                    _s_loss = -_s_loss
 
                 loss = (
                     _reconstr_loss
                     + annealer(_kl_c)
                     + annealer(_kl_s)
-                    + alpha * _ntxent_loss
-                    + alpha * _reverse_ntxent_loss
+                    + alpha * _c_loss
+                    + alpha * _s_loss
                 )
 
                 loss.backward()
@@ -487,8 +487,8 @@ class CLEARVAETrainer(VAETrainer):
                     recontr_loss=float(_reconstr_loss),
                     kl_c=float(_kl_c),
                     kl_s=float(_kl_s),
-                    c_loss=float(_ntxent_loss),
-                    s_loss=float(_reverse_ntxent_loss),
+                    c_loss=float(_c_loss),
+                    s_loss=float(_s_loss),
                 )
         return
 
@@ -521,29 +521,29 @@ class CLEARVAETrainer(VAETrainer):
                 X_hat, latent_params, z = vae(X, explicit=True)
 
                 _recontr_loss, _kl_c, _kl_s = vae_loss(X_hat, X, **latent_params)
-                _ntxent_loss = snn_loss(
+                _c_loss = contrastive_loss(
                     mu=latent_params["mu_c"],
                     logvar=latent_params["logvar_c"],
                     label=label,
                     sim_fn=self.sim_fn,
                     temperature=temperature,
                 )
-                _reverse_ntxent_loss = snn_loss(
+                _s_loss = contrastive_loss(
                     mu=latent_params["mu_s"],
                     logvar=latent_params["logvar_s"],
                     label=label,
                     sim_fn=self.sim_fn,
                     temperature=temperature,
-                    flip=ps,
+                    ps=ps,
                 )
                 if not ps:
-                    _reverse_ntxent_loss = -_reverse_ntxent_loss
+                    _s_loss = -_s_loss
 
                 total_reconstr_loss += _recontr_loss
                 total_kl_c += _kl_c
                 total_kl_s += _kl_s
-                total_c_loss += _ntxent_loss
-                total_s_loss += _reverse_ntxent_loss
+                total_c_loss += _c_loss
+                total_s_loss += _s_loss
 
                 all_label.append(label)
                 all_latent_c.append(z[:, : vae.z_dim])
@@ -654,7 +654,7 @@ class ClearTCVAETrainer(VAETrainer):
                 X_hat, latent_params, z = vae(X, explicit=True)
                 vae_optimizer.zero_grad()
                 _reconstr_loss, _kl_c, _kl_s = vae_loss(X_hat, X, **latent_params)
-                _ntxent_loss = snn_loss(
+                _c_loss = contrastive_loss(
                     mu=latent_params["mu_c"],
                     logvar=latent_params["logvar_c"],
                     label=label,
@@ -668,7 +668,7 @@ class ClearTCVAETrainer(VAETrainer):
                     _reconstr_loss
                     + annealer(_kl_c)
                     + annealer(_kl_s)
-                    + hyperparameter["alpha"] * _ntxent_loss
+                    + hyperparameter["alpha"] * _c_loss
                     + hyperparameter["lambda"] * _mi_loss
                 )
 
@@ -704,7 +704,7 @@ class ClearTCVAETrainer(VAETrainer):
                     recontr_loss=float(_reconstr_loss),
                     kl_c=float(_kl_c),
                     kl_s=float(_kl_s),
-                    c_loss=float(_ntxent_loss),
+                    c_loss=float(_c_loss),
                     mi_loss=float(_mi_loss),
                 )
 
@@ -737,7 +737,7 @@ class ClearTCVAETrainer(VAETrainer):
 
                 X_hat, latent_params, z = vae(X, explicit=True)
                 _reconstr_loss, _kl_c, _kl_s = vae_loss(X_hat, X, **latent_params)
-                _ntxent_loss = snn_loss(
+                _c_loss = contrastive_loss(
                     mu=latent_params["mu_c"],
                     logvar=latent_params["logvar_c"],
                     label=label,
@@ -750,7 +750,7 @@ class ClearTCVAETrainer(VAETrainer):
                 total_reconstr_loss += _reconstr_loss
                 total_kl_c += _kl_c
                 total_kl_s += _kl_s
-                total_c_loss += _ntxent_loss
+                total_c_loss += _c_loss
                 total_mi_loss += _mi_loss
 
                 all_label.append(label)
@@ -848,7 +848,7 @@ class ClearMIMVAETrainer(VAETrainer):
                 X_hat, latent_params, z = vae(X, explicit=True)
                 vae_optimizer.zero_grad()
                 _reconstr_loss, _kl_c, _kl_s = vae_loss(X_hat, X, **latent_params)
-                _ntxent_loss = snn_loss(
+                _c_loss = contrastive_loss(
                     mu=latent_params["mu_c"],
                     logvar=latent_params["logvar_c"],
                     label=label,
@@ -862,7 +862,7 @@ class ClearMIMVAETrainer(VAETrainer):
                     _reconstr_loss
                     + annealer(_kl_c)
                     + annealer(_kl_s)
-                    + hyperparameter["alpha"] * _ntxent_loss
+                    + hyperparameter["alpha"] * _c_loss
                     + hyperparameter["lambda"] * _mi_loss
                 )
 
@@ -892,7 +892,7 @@ class ClearMIMVAETrainer(VAETrainer):
                     recontr_loss=float(_reconstr_loss),
                     kl_c=float(_kl_c),
                     kl_s=float(_kl_s),
-                    c_loss=float(_ntxent_loss),
+                    c_loss=float(_c_loss),
                     mi_loss=float(_mi_loss),
                 )
 
@@ -925,7 +925,7 @@ class ClearMIMVAETrainer(VAETrainer):
 
                 X_hat, latent_params, z = vae(X, explicit=True)
                 _reconstr_loss, _kl_c, _kl_s = vae_loss(X_hat, X, **latent_params)
-                _ntxent_loss = snn_loss(
+                _c_loss = contrastive_loss(
                     mu=latent_params["mu_c"],
                     logvar=latent_params["logvar_c"],
                     label=label,
@@ -937,7 +937,7 @@ class ClearMIMVAETrainer(VAETrainer):
                 total_reconstr_loss += _reconstr_loss
                 total_kl_c += _kl_c
                 total_kl_s += _kl_s
-                total_c_loss += _ntxent_loss
+                total_c_loss += _c_loss
                 total_mi_loss += _mi_loss
 
                 all_label.append(label)

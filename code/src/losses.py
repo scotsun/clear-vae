@@ -50,29 +50,6 @@ def vae_loss(x_reconstr, x, mu_c, mu_s, logvar_c, logvar_s):
     return reconstruction_loss, kl_c, kl_s
 
 
-def divergence_fn(mu_b_c, mu_p_c, logvar_b_c, logvar_p_c, metric="mahalanobis"):
-    """
-    Divergence between latent distns of image pair.
-    """
-    if metric == "mahalanobis":
-        d = (mu_b_c - mu_p_c) ** 2 / torch.exp(0.5 * (logvar_b_c + logvar_p_c))
-        return d.mean(dim=1)
-    else:
-        raise NotImplementedError(f"metric {metric} not implemented")
-
-
-def contrastive_loss(
-    y, mu_b_c, mu_p_c, logvar_b_c, logvar_p_c, metric="mahalanobis", m=10
-):
-    """
-    y: 0 or 1
-    m: margin
-    """
-    d = divergence_fn(mu_b_c, mu_p_c, logvar_b_c, logvar_p_c, metric)
-    loss = (1 - y) * d + y * torch.clamp(m - d, min=0)
-    return loss.mean()
-
-
 # Pairwise similarity measures
 def pairwise_cosine(mu: torch.Tensor):
     return F.cosine_similarity(mu[None, :, :], mu[:, None, :], dim=-1)
@@ -118,27 +95,16 @@ def logsumexp(x: Tensor, dim: int) -> Tensor:
     return s.masked_fill_(mask, 1).log() + m.masked_fill_(mask, -float("inf"))
 
 
-def _snn_loss(sim: torch.Tensor, pair_mat: torch.Tensor, temperature: float):
-    n = sim.shape[0]
-    # sim = sim.clone()
-    sim[torch.eye(n).bool()] = float("-Inf")
-
-    neg_mask = pair_mat == 0
-    pos = pair_mat * sim
-    pos[neg_mask] = float("-Inf")
-    loss = -logsumexp(pos / temperature, dim=1) + logsumexp(sim / temperature, dim=1)
-    return loss
-
-
-def snn_loss(
+def contrastive_loss(
     mu: torch.Tensor,
     logvar: torch.Tensor,
     label: torch.Tensor,
     sim_fn: str,
     temperature: float,
-    flip: bool = False,
+    loss_name: str = "snn_loss",
+    ps: bool = False,
 ):
-    if flip:
+    if ps:
         pair_mat = (label[None, :] != label[:, None]).float()
     else:
         pair_mat = (label[None, :] == label[:, None]).float()
@@ -155,19 +121,25 @@ def snn_loss(
             sim = pairwise_mahalanobis_dis(mu, logvar)
         case _:
             raise ValueError("unimplemented similarity measure.")
-    losses = _snn_loss(sim, pair_mat, temperature)
+    losses = eval(loss_name)(sim, pair_mat, temperature)
     finite_mask = torch.isfinite(losses)
     return losses[finite_mask].mean()
 
 
-def supcon_in_loss(mu: torch.Tensor, label: torch.Tensor, temperature: float):
-    sim = pairwise_cosine(mu)
-    pair_mat = (label[None, :] == label[:, None]).float()
-
-    n_k = label.bincount()[label]
-
+def snn_loss(sim: torch.Tensor, pair_mat: torch.Tensor, temperature: float):
     n = sim.shape[0]
-    # sim = sim.clone()
+    sim[torch.eye(n).bool()] = float("-Inf")
+
+    neg_mask = pair_mat == 0
+    pos = pair_mat * sim
+    pos[neg_mask] = float("-Inf")
+    loss = -logsumexp(pos / temperature, dim=1) + logsumexp(sim / temperature, dim=1)
+    return loss
+
+
+def supcon_in_loss(sim: torch.Tensor, pair_mat: torch.Tensor, temperature: float):
+    n_k = pair_mat.sum(dim=1) - 1
+    n = sim.shape[0]
     sim[torch.eye(n).bool()] = float("-Inf")
 
     neg_mask = pair_mat == 0
@@ -181,18 +153,19 @@ def supcon_in_loss(mu: torch.Tensor, label: torch.Tensor, temperature: float):
     return loss
 
 
-def supcon_out_loss(mu: torch.Tensor, label: torch.Tensor, temperature: float):
-    sim = pairwise_cosine(mu)
-    pair_mat = (label[None, :] == label[:, None]).float()
+def supcon_out_loss(sim: torch.Tensor, pair_mat: torch.Tensor, temperature: float):
     n = sim.shape[0]
+    sim[torch.eye(n).bool()] = -999
 
-    sim[torch.eye(n).bool()] = float("-Inf")
-
-    pos_mask = pair_mat & ~torch.eye(n).bool().to(mu.device)
+    pos_mask = pair_mat * (1 - torch.eye(n)).to(sim.device)
     masked_sim = sim * pos_mask
 
-    loss = -masked_sim.sum(dim=1) / pos_mask.sum(dim=1) + logsumexp(
-        sim / temperature, dim=1
+    # get rid of the class with only one sample that could not form a pair
+    n_k = pos_mask.sum(dim=1)
+    select = n_k > 0
+
+    loss = -masked_sim.sum(dim=1)[select] / n_k[select] + logsumexp(
+        sim[select] / temperature, dim=1
     )
     return loss
 

@@ -11,7 +11,6 @@ from corruption_utils import corruptions
 
 from src.utils.trainer_utils import (
     get_cnn_trainer,
-    get_lamcnn_trainer,
     get_clearvae_trainer,
     get_cleartcvae_trainer,
     get_clearmimvae_trainer,
@@ -32,6 +31,7 @@ style_fns = [
 
 def get_args():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--data_root_path", type=str, help="root path of the dataset")
     parser.add_argument(
         "--epochs",
         type=int,
@@ -53,7 +53,7 @@ def get_args():
     return parser.parse_args()
 
 
-def get_data_splits(k: int, seed: int):
+def get_data_splits(data_root_path: str, k: int, seed: int):
     """
     Generate data splits and style dictionaries for k styled MNIST dataset
 
@@ -69,7 +69,7 @@ def get_data_splits(k: int, seed: int):
     """
     np.random.seed(seed)
     torch.manual_seed(seed)
-    mnist = torchvision.datasets.MNIST("../data", train=True)
+    mnist = torchvision.datasets.MNIST(data_root_path, train=True, download=True)
     mnist_train, mnist_test = random_split(mnist, [50000, 10000])
     style_dict = generate_style_dict(
         classes=list(range(10)), styles=list(range(len(style_fns))), k=k
@@ -127,9 +127,9 @@ def experiment_helper(
     return aupr_scores, auroc_scores, acc
 
 
-def experiment(k, seed, trainer_kwargs, epochs):
+def experiment(mnist_path, k, seed, trainer_kwargs, epochs):
     print(f"Experiment: k={k}, seed={seed}")
-    _, train, valid, test = get_data_splits(k=k, seed=seed)
+    _, train, valid, test = get_data_splits(data_root_path=mnist_path, k=k, seed=seed)
     train_loader = DataLoader(train, batch_size=128, shuffle=True)
     valid_loader = DataLoader(valid, batch_size=128, shuffle=False)
     test_loader = DataLoader(test, batch_size=128, shuffle=False)
@@ -139,68 +139,52 @@ def experiment(k, seed, trainer_kwargs, epochs):
             get_cnn_trainer,
             {"n_class": 10, "device": trainer_kwargs["device"]},
         ),
-        "lam0": (
-            get_lamcnn_trainer,
-            {"lam_coef": 0.0001, "n_class": 10, "device": trainer_kwargs["device"]},
+        "gvae": (
+            get_hierarchical_vae_trainer,
+            {
+                "beta": trainer_kwargs["beta"],
+                "vae_lr": 5e-4,
+                "z_dim": trainer_kwargs["z_dim"],
+                "group_mode": "GVAE",
+                "device": trainer_kwargs["device"],
+            },
         ),
-        "lam1": (
-            get_lamcnn_trainer,
-            {"lam_coef": 0.001, "n_class": 10, "device": trainer_kwargs["device"]},
+        "mlvae": (
+            get_hierarchical_vae_trainer,
+            {
+                "beta": trainer_kwargs["beta"],
+                "vae_lr": 5e-4,
+                "z_dim": trainer_kwargs["z_dim"],
+                "group_mode": "MLVAE",
+                "device": trainer_kwargs["device"],
+            },
         ),
-        "lam2": (
-            get_lamcnn_trainer,
-            {"lam_coef": 0.01, "n_class": 10, "device": trainer_kwargs["device"]},
-        ),
-        "lam3": (
-            get_lamcnn_trainer,
-            {"lam_coef": 0.1, "n_class": 10, "device": trainer_kwargs["device"]},
-        ),
-        # "gvae": (
-        #     get_hierarchical_vae_trainer,
-        #     {
-        #         "beta": trainer_kwargs["beta"],
-        #         "vae_lr": 5e-4,
-        #         "z_dim": trainer_kwargs["z_dim"],
-        #         "group_mode": "GVAE",
-        #         "device": trainer_kwargs["device"],
-        #     },
-        # ),
-        # "mlvae": (
-        #     get_hierarchical_vae_trainer,
-        #     {
-        #         "beta": trainer_kwargs["beta"],
-        #         "vae_lr": 5e-4,
-        #         "z_dim": trainer_kwargs["z_dim"],
-        #         "group_mode": "MLVAE",
-        #         "device": trainer_kwargs["device"],
-        #     },
-        # ),
         "clear": (
             get_clearvae_trainer,
             {"ps": True, **trainer_kwargs},
         ),
-        # "clear-tc": (
-        #     get_cleartcvae_trainer,
-        #     {"la": 1, "factor_cls_lr": 1e-4, **trainer_kwargs},
-        # ),
-        # "clear-mim (L1OutUB)": (
-        #     get_clearmimvae_trainer,
-        #     {
-        #         "mi_estimator": "L1OutUB",
-        #         "la": 3,
-        #         "mi_estimator_lr": 2e-3,
-        #         **trainer_kwargs,
-        #     },
-        # ),
-        # "clear-mim (CLUB-S)": (
-        #     get_clearmimvae_trainer,
-        #     {
-        #         "mi_estimator": "CLUBSample",
-        #         "la": 3,
-        #         "mi_estimator_lr": 2e-3,
-        #         **trainer_kwargs,
-        #     },
-        # ),
+        "clear-tc": (
+            get_cleartcvae_trainer,
+            {"la": 1, "factor_cls_lr": 1e-4, **trainer_kwargs},
+        ),
+        "clear-mim (L1OutUB)": (
+            get_clearmimvae_trainer,
+            {
+                "mi_estimator": "L1OutUB",
+                "la": 3,
+                "mi_estimator_lr": 2e-3,
+                **trainer_kwargs,
+            },
+        ),
+        "clear-mim (CLUB-S)": (
+            get_clearmimvae_trainer,
+            {
+                "mi_estimator": "CLUBSample",
+                "la": 3,
+                "mi_estimator_lr": 2e-3,
+                **trainer_kwargs,
+            },
+        ),
     }
 
     results = {}
@@ -254,6 +238,7 @@ def main():
     }
     for k in range(1, len(style_fns)):
         experiment(
+            mnist_path=args.data_root_path,
             k=k,
             seed=seed,
             trainer_kwargs=trainer_kwargs,
