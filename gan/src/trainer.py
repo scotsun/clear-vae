@@ -106,7 +106,7 @@ def gradient_penalty(D, real_sample, fake_sample, device):
     L2 Regularize/penalize discriminator's weight gradients L2 norm being greater than 1.
     """
     N, C, H, W = real_sample.shape
-    alpha = torch.randn((N, 1, 1, 1)).repeat(1, C, H, W).to(device)
+    alpha = torch.rand((N, 1, 1, 1)).repeat(1, C, H, W).to(device)
     # get X_hat, the interpolation between real samples and fake samples
     interpolated_images = real_sample * alpha + fake_sample * (1 - alpha)
     interpolated_images.requires_grad = True
@@ -131,7 +131,7 @@ def gradient_penalty_clear(D, real_sample, fake_sample, device):
     L2 Regularize/penalize discriminator's weight gradients L2 norm being greater than 1.
     """
     N, C, H, W = real_sample.shape
-    alpha = torch.randn((N, 1, 1, 1)).repeat(1, C, H, W).to(device)
+    alpha = torch.rand((N, 1, 1, 1)).repeat(1, C, H, W).to(device)
     # get X_hat, the interpolation between real samples and fake samples
     interpolated_images = real_sample * alpha + fake_sample * (1 - alpha)
     interpolated_images.requires_grad = True
@@ -507,7 +507,7 @@ class CLEARInfoGAN:
         z_c = self.zc_encoder(torch.cat([z, label_onehot], dim=-1))
         z_s = self.zs_encoder(torch.cat([z, label_onehot], dim=-1))
         loss_c, loss_s = snn_loss(z_c, label, tau), snn_loss(z_s, label, tau, flip=True)
-        (loss_c + loss_s).backward()
+        (100 * loss_c + 100 * loss_s).backward()
         self.z_opt.step()
         return z_c.detach(), z_s.detach(), loss_c, loss_s
 
@@ -526,6 +526,7 @@ class CLEARInfoGAN:
         self.encoder.train()
         self.dhead.train()
         self.qhead_c.train()
+        self.qhead_s.train()
 
         lambda_info = self.hyperparam["lambda_info"]
         tau = self.hyperparam["tau"]
@@ -588,6 +589,144 @@ class CLEARInfoGAN:
                     d_loss=d_loss.item(),
                     g_loss=g_loss.item(),
                     q_loss=q_loss.item(),
+                    loss_c=loss_c.item(),
+                    loss_s=loss_s.item(),
+                )
+
+
+class TestGAN:
+    def __init__(
+        self, z_dim, num_classes, lr, hyperparam, verbose_period, device
+    ) -> None:
+        self.z_dim = z_dim
+        self.z_c_dim, self.z_s_dim = z_dim // 2, z_dim // 2
+        self.num_classes = num_classes
+        self.verbose_period = verbose_period
+        self.device = device
+        self.hyperparam = hyperparam
+
+        self.generator = Generator(z_dim).apply(weights_init).to(device)
+        self.zc_encoder = nn.Sequential(
+            nn.Linear(z_dim, 128), nn.ReLU(), nn.Linear(128, self.z_c_dim)
+        ).to(device)
+        self.zs_encoder = nn.Sequential(
+            nn.Linear(z_dim, 128), nn.ReLU(), nn.Linear(128, self.z_s_dim)
+        ).to(device)
+        self.encoder = Encoder().apply(weights_init).to(device)
+        self.qhead_c = QHead(out_dim=self.z_c_dim).to(device)
+        self.qhead_s = QHead(out_dim=self.z_s_dim).to(device)
+        self.dhead = DHead().to(device)
+
+        self.loss = nn.BCELoss()
+        self.qloss = nn.MSELoss()
+
+        d_params = (
+            list(self.encoder.parameters())
+            + list(self.zc_encoder.parameters())
+            + list(self.dhead.parameters())
+            + list(self.zs_encoder.parameters())
+        )
+        g_params = (
+            list(self.generator.parameters())
+            + list(self.qhead_c.parameters())
+            + list(self.qhead_s.parameters())
+        )
+        self.d_opt = Adam(d_params, lr=lr, betas=(0.5, 0.999))
+        self.g_opt = Adam(g_params, lr=lr, betas=(0.5, 0.999))
+
+    def fit(self, epochs: int, train_loader: DataLoader):
+        d_losses, g_losses = [], []
+        for epoch in range(epochs):
+            verbose = (epoch % self.verbose_period) == 0
+            verbose = (epoch % self.verbose_period) == 0
+            self._train(train_loader, verbose, epoch, d_losses, g_losses)
+        return d_losses, g_losses
+
+    def _contrastive_step(self, z_c, z_s, label, tau):
+        loss_c, loss_s = snn_loss(z_c, label, tau), snn_loss(z_s, label, tau, flip=True)
+        return loss_c, loss_s
+
+    def _train(
+        self,
+        train_loader: DataLoader,
+        verbose: bool,
+        epoch: int,
+        d_losses: list,
+        g_losses: list,
+    ):
+        self.generator.train()
+        self.zc_encoder.train()
+        self.zs_encoder.train()
+        self.encoder.train()
+        self.dhead.train()
+        self.qhead_c.train()
+        self.qhead_s.train()
+
+        tau = self.hyperparam["tau"]
+
+        with tqdm(train_loader, unit="batch", disable=not verbose) as bar:
+            bar.set_description(f"Epoch {epoch}")
+            for batch in bar:
+                real_x = batch[0].to(self.device)
+                real_y = batch[1].to(self.device)
+                batch_size = real_x.size(0)
+                real_hidden = self.encoder(real_x)
+                real_c = self.qhead_c(real_hidden).squeeze()
+                real_s = self.qhead_s(real_hidden).squeeze()
+
+                # 1. Train Discriminator
+                self.d_opt.zero_grad()
+                # noise generation
+                fake_y = torch.randint(0, self.num_classes, (batch_size,)).to(
+                    self.device
+                )
+                z_raw = torch.randn(batch_size, self.z_dim).to(self.device)
+                fake_c, fake_s = self.zc_encoder(z_raw), self.zs_encoder(z_raw)
+                z = torch.cat([fake_c, fake_s], dim=1)[:, :, None, None]
+
+                real_labels = torch.ones(batch_size).to(self.device)
+                fake_labels = torch.zeros(batch_size).to(self.device)
+
+                # compute bce using the real
+                real_scores = self.dhead(self.encoder(real_x)).squeeze()
+                d_loss_real = self.loss(real_scores, real_labels)
+                # compute bce using the fake
+                fake_x = self.generator(z)
+                fake_hidden = self.encoder(fake_x.detach())
+                fake_c = self.qhead_c(fake_hidden).squeeze()
+                fake_s = self.qhead_s(fake_hidden).squeeze()
+                fake_scores = self.dhead(fake_hidden).squeeze()
+                d_loss_fake = self.loss(fake_scores, fake_labels)
+
+                loss_c, loss_s = self._contrastive_step(
+                    z_c=torch.cat([real_c, fake_c]),
+                    z_s=torch.cat([real_s, fake_s]),
+                    label=torch.cat([real_y, fake_y]),
+                    tau=tau,
+                )
+
+                # opt discriminator
+                # max log(D(x)) + log(1 - D(G(z))) <==> min -log(D(x)) - log(1 - D(G(z)))
+                d_loss = d_loss_real + d_loss_fake + 100 * (loss_c + loss_s)
+                d_loss.backward()
+                self.d_opt.step()
+
+                # 2. Train Generator
+                self.g_opt.zero_grad()
+                fake_hidden = self.encoder(fake_x)
+                fake_scores = self.dhead(fake_hidden).squeeze()
+                # min log(1 - D(G(z))) <==> min -log( D(G(z)) )
+                g_loss = self.loss(fake_scores, real_labels)
+
+                g_loss.backward()
+                self.g_opt.step()
+
+                # update bar
+                d_losses.append(float(d_loss))
+                g_losses.append(float(g_loss))
+                bar.set_postfix(
+                    d_loss=d_loss.item(),
+                    g_loss=g_loss.item(),
                     loss_c=loss_c.item(),
                     loss_s=loss_s.item(),
                 )
